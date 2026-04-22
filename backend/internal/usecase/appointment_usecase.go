@@ -175,9 +175,10 @@ func (u *appointmentUsecase) UpdateStatus(id uuid.UUID, req *dto.UpdateAppointme
 
 	app.Status = newStatus
 	now := time.Now()
-	if newStatus == entity.StatusInProgress {
+	switch newStatus {
+	case entity.StatusInProgress:
 		app.CheckedInAt = &now
-	} else if newStatus == entity.StatusCompleted {
+	case entity.StatusCompleted:
 		app.CompletedAt = &now
 	}
 

@@ -82,3 +82,7 @@ frontend/
     npm run dev
     ```
 4.  Buka browser dan akses `http://localhost:5173`.
+![alt text](image.png)
+![alt text](image-1.png)
+![alt text](image-2.png)
+![alt text](image-3.png)
