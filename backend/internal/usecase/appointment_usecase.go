@@ -15,7 +15,7 @@ type AppointmentUsecase interface {
 	Book(patientUserID uuid.UUID, req *dto.CreateAppointmentRequest) (*entity.Appointment, error)
 	GetAll(limit, offset int, status, date string) ([]entity.Appointment, int64, error)
 	GetByPatient(patientUserID uuid.UUID, limit, offset int) ([]entity.Appointment, int64, error)
-	GetByDoctorToday(doctorUserID uuid.UUID) ([]entity.Appointment, error)
+	GetByDoctorDate(doctorUserID uuid.UUID, date time.Time) ([]entity.Appointment, error)
 	GetByID(id uuid.UUID) (*entity.Appointment, error)
 	UpdateStatus(id uuid.UUID, req *dto.UpdateAppointmentStatusRequest) (*entity.Appointment, error)
 	Cancel(id uuid.UUID, actorRole string, actorUserID uuid.UUID, reason string) error
@@ -52,7 +52,7 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 	if err != nil {
 		return nil, errors.New("invalid schedule ID")
 	}
-	appointmentDate, err := time.Parse("2006-01-02", req.AppointmentDate)
+	appointmentDate, err := time.ParseInLocation("2006-01-02", req.AppointmentDate, time.Local)
 	if err != nil {
 		return nil, errors.New("invalid date format. Use YYYY-MM-DD")
 	}
@@ -131,12 +131,12 @@ func (u *appointmentUsecase) GetByPatient(patientUserID uuid.UUID, limit, offset
 	return u.appointmentRepo.FindByPatientID(patient.ID, limit, offset)
 }
 
-func (u *appointmentUsecase) GetByDoctorToday(doctorUserID uuid.UUID) ([]entity.Appointment, error) {
+func (u *appointmentUsecase) GetByDoctorDate(doctorUserID uuid.UUID, date time.Time) ([]entity.Appointment, error) {
 	doctor, err := u.doctorRepo.FindByUserID(doctorUserID)
 	if err != nil {
 		return nil, errors.New("doctor not found")
 	}
-	return u.appointmentRepo.FindByDoctorIDAndDate(doctor.ID, time.Now())
+	return u.appointmentRepo.FindByDoctorIDAndDate(doctor.ID, date)
 }
 
 func (u *appointmentUsecase) GetByID(id uuid.UUID) (*entity.Appointment, error) {

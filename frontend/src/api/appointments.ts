@@ -8,8 +8,8 @@ export const appointmentApi = {
   getMy: (params?: { page?: number; per_page?: number }) =>
     apiClient.get<PaginatedResponse<Appointment>>('/appointments/my', { params }),
 
-  getTodayQueue: () =>
-    apiClient.get<ApiResponse<Appointment[]>>('/appointments/today'),
+  getTodayQueue: (date?: string) =>
+    apiClient.get<ApiResponse<Appointment[]>>('/appointments/today', { params: { date } }),
 
   getById: (id: string) =>
     apiClient.get<ApiResponse<Appointment>>(`/appointments/${id}`),
@@ -44,6 +44,11 @@ export const medicalRecordApi = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<MedicalRecord>>(`/medical-records/${id}`),
 
+  // Doctor: lihat rekam medis pasien berdasarkan patient UUID
   getByPatient: (patientId: string, params?: { page?: number }) =>
     apiClient.get<PaginatedResponse<MedicalRecord>>(`/medical-records/patient/${patientId}`, { params }),
+
+  // Patient: lihat rekam medis sendiri (endpoint khusus, otentikasi via JWT)
+  getMy: (params?: { page?: number }) =>
+    apiClient.get<PaginatedResponse<MedicalRecord>>('/medical-records/my', { params }),
 }

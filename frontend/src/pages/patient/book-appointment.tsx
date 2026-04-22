@@ -1,14 +1,18 @@
-import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Calendar, Clock, Loader2, CheckCircle } from 'lucide-react'
 import { doctorApi, scheduleApi } from '@/api/doctors'
 import { appointmentApi } from '@/api/appointments'
+import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DAYS } from '@/lib/utils'
 import type { DoctorSchedule } from '@/types'
 
 export default function BookAppointmentPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [step, setStep] = useState(1)
   const [selectedDoctor, setSelectedDoctor] = useState<string>('')
   const [selectedSchedule, setSelectedSchedule] = useState<DoctorSchedule | null>(null)
@@ -30,11 +34,16 @@ export default function BookAppointmentPage() {
   const bookMutation = useMutation({
     mutationFn: appointmentApi.book,
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-appointments'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-stats'] })
+      toast.success('Antrian berhasil didaftarkan!', 'Silakan datang sesuai jadwal.')
       setSuccess(true)
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } }
-      setError(e?.response?.data?.message || 'Gagal membooking antrian')
+      const msg = e?.response?.data?.message || 'Gagal membooking antrian'
+      toast.error('Gagal mendaftar antrian', msg)
+      setError(msg)
     },
   })
 
@@ -46,8 +55,22 @@ export default function BookAppointmentPage() {
     const diff = (dayOfWeek - today.getDay() + 7) % 7
     const next = new Date(today)
     next.setDate(today.getDate() + (diff === 0 ? 7 : diff))
-    return next.toISOString().split('T')[0]
+
+    // Format YYYY-MM-DD in local time
+    const yyyy = next.getFullYear()
+    const mm = String(next.getMonth() + 1).padStart(2, '0')
+    const dd = String(next.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
   }
+
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        navigate('/patient/dashboard')
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [success, navigate])
 
   const handleBook = () => {
     if (!selectedSchedule || !selectedDate) return
@@ -67,9 +90,10 @@ export default function BookAppointmentPage() {
         </div>
         <h2 className="text-2xl font-bold text-slate-900">Booking Berhasil!</h2>
         <p className="text-muted-foreground">Antrian Anda telah terdaftar.</p>
-        <Button onClick={() => { setSuccess(false); setStep(1); setSelectedDoctor(''); setSelectedSchedule(null) }}
-          className="gradient-primary text-white border-0 mt-2">
-          Daftar Lagi
+        <p className="text-sm text-slate-400 mt-2 animate-pulse">Mengalihkan ke beranda...</p>
+        <Button onClick={() => navigate('/patient/dashboard')}
+          className="gradient-primary text-white border-0 mt-4">
+          Ke Beranda Sekarang
         </Button>
       </div>
     )
@@ -78,8 +102,8 @@ export default function BookAppointmentPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Daftar Antrian</h1>
-        <p className="text-muted-foreground mt-1">Pilih dokter dan jadwal yang tersedia</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Daftar Antrian</h1>
+        <p className="text-slate-500 mt-1">Pilih dokter dan jadwal yang tersedia</p>
       </div>
 
       {/* Step 1: Choose Doctor */}
@@ -99,11 +123,10 @@ export default function BookAppointmentPage() {
                 <button
                   key={doctor.id}
                   onClick={() => { setSelectedDoctor(doctor.id); setSelectedSchedule(null); setStep(2) }}
-                  className={`w-full flex items-center gap-3 p-4 rounded-lg border text-left transition-all ${
-                    selectedDoctor === doctor.id
+                  className={`w-full flex items-center gap-3 p-4 rounded-lg border text-left transition-all ${selectedDoctor === doctor.id
                       ? 'border-primary bg-primary/5'
                       : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
+                    }`}
                 >
                   <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold shrink-0">
                     {doctor.user?.full_name?.charAt(0)}
@@ -148,11 +171,10 @@ export default function BookAppointmentPage() {
                         setSelectedDate(nextDate)
                         setStep(3)
                       }}
-                      className={`w-full flex items-center justify-between p-4 rounded-lg border text-left transition-all ${
-                        selectedSchedule?.id === schedule.id
+                      className={`w-full flex items-center justify-between p-4 rounded-lg border text-left transition-all ${selectedSchedule?.id === schedule.id
                           ? 'border-primary bg-primary/5'
                           : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-3">
                         <Calendar className="size-5 text-muted-foreground" />

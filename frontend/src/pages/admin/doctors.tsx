@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
 import { doctorApi } from '@/api/doctors'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,20 +27,24 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
 
   const createMutation = useMutation({
     mutationFn: doctorApi.create,
-    onSuccess: () => { onSaved(); onClose() },
+    onSuccess: () => { toast.success('Dokter berhasil ditambahkan'); onSaved(); onClose() },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } }
-      setError(e?.response?.data?.message || 'Gagal menyimpan')
+      const msg = e?.response?.data?.message || 'Gagal menyimpan'
+      setError(msg)
+      toast.error('Gagal menambahkan dokter', msg)
     },
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof doctorApi.update>[1] }) =>
       doctorApi.update(id, data),
-    onSuccess: () => { onSaved(); onClose() },
+    onSuccess: () => { toast.success('Data dokter berhasil diperbarui'); onSaved(); onClose() },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } }
-      setError(e?.response?.data?.message || 'Gagal menyimpan')
+      const msg = e?.response?.data?.message || 'Gagal menyimpan'
+      setError(msg)
+      toast.error('Gagal menambahkan dokter', msg)
     },
   })
 
@@ -56,11 +61,11 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
   const isPending = createMutation.isPending || updateMutation.isPending
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 modal-overlay">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md modal-content">
         <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="font-semibold">{doctor ? 'Edit Dokter' : 'Tambah Dokter'}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <h2 className="font-semibold text-slate-900">{doctor ? 'Edit Dokter' : 'Tambah Dokter'}</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>}
@@ -92,8 +97,8 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
             </div>
           ))}
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
-            <Button type="submit" className="gradient-primary text-white border-0" disabled={isPending}>
+            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl">Batal</Button>
+            <Button type="submit" className="gradient-primary text-white border-0 rounded-xl shadow-md shadow-blue-500/20" disabled={isPending}>
               {isPending ? <Loader2 className="size-4 animate-spin" /> : 'Simpan'}
             </Button>
           </div>
@@ -115,7 +120,8 @@ export default function AdminDoctorsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: doctorApi.delete,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['doctors'] }),
+    onSuccess: () => { toast.success('Dokter berhasil dihapus'); queryClient.invalidateQueries({ queryKey: ['doctors'] }) },
+    onError: () => toast.error('Gagal menghapus dokter'),
   })
 
   const doctors = data?.data?.data ?? []
@@ -124,52 +130,70 @@ export default function AdminDoctorsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Data Dokter</h1>
-          <p className="text-muted-foreground mt-1">Kelola akun dan profil dokter</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Data Dokter</h1>
+          <p className="text-slate-500 mt-1">Kelola akun dan profil dokter</p>
         </div>
         <Button onClick={() => { setEditDoctor(null); setShowModal(true) }}
-          className="gradient-primary text-white border-0">
+          className="gradient-primary text-white border-0 rounded-xl shadow-lg shadow-blue-500/25 font-semibold">
           <Plus className="size-4 mr-1" /> Tambah Dokter
         </Button>
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>
-      ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {doctors.map((doc) => (
-            <Card key={doc.id} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold">
-                      {doc.user?.full_name?.charAt(0)}
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm">{doc.user?.full_name}</CardTitle>
-                      <p className="text-xs text-muted-foreground">{doc.specialization}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => { setEditDoctor(doc); setShowModal(true) }}
-                      className="p-1.5 rounded text-slate-400 hover:text-primary hover:bg-primary/10 transition-colors">
-                      <Pencil className="size-3.5" />
-                    </button>
-                    <button onClick={() => deleteMutation.mutate(doc.id)}
-                      className="p-1.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                      <Trash2 className="size-3.5" />
-                    </button>
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="border-0 shadow-sm">
+              <CardContent className="p-6 space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full skeleton" />
+                  <div className="space-y-2">
+                    <div className="h-3.5 w-24 skeleton rounded" />
+                    <div className="h-3 w-16 skeleton rounded" />
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-1.5 text-xs text-muted-foreground">
-                <p>✉️ {doc.user?.email}</p>
-                <p>📋 SIP: {doc.sip_number}</p>
-                {doc.user?.phone && <p>📞 {doc.user.phone}</p>}
+                <div className="h-3 w-full skeleton rounded" />
+                <div className="h-3 w-2/3 skeleton rounded" />
               </CardContent>
             </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {doctors.map((doc, idx) => (
+            <div key={doc.id} className="stagger-item" style={{ animationDelay: `${idx * 60}ms` }}>
+              <Card className="card-hover border-0 shadow-sm">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-full gradient-primary flex items-center justify-center text-white font-bold shadow-md shadow-blue-500/20">
+                        {doc.user?.full_name?.charAt(0)}
+                      </div>
+                      <div>
+                        <CardTitle className="text-sm">{doc.user?.full_name}</CardTitle>
+                        <p className="text-[11px] text-slate-400">{doc.specialization}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditDoctor(doc); setShowModal(true) }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button onClick={() => deleteMutation.mutate(doc.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-2 text-xs text-slate-400">
+                  <p className="flex items-center gap-1.5">✉️ {doc.user?.email}</p>
+                  <p className="flex items-center gap-1.5">📋 SIP: {doc.sip_number}</p>
+                  {doc.user?.phone && <p className="flex items-center gap-1.5">📞 {doc.user.phone}</p>}
+                </CardContent>
+              </Card>
+            </div>
           ))}
         </div>
       )}

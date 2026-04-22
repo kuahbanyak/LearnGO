@@ -7,6 +7,7 @@ import (
 	"mediqueue/internal/usecase"
 	"mediqueue/pkg/response"
 	"mediqueue/pkg/utils"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -70,8 +71,16 @@ func (h *AppointmentHandler) GetMyAppointments(c *gin.Context) {
 func (h *AppointmentHandler) GetTodayQueue(c *gin.Context) {
 	claims := middleware.GetCurrentUser(c)
 	userID, _ := uuid.Parse(claims.UserID)
+	
+	dateStr := c.Query("date")
+	targetDate := time.Now()
+	if dateStr != "" {
+		if parsed, err := time.ParseInLocation("2006-01-02", dateStr, time.Local); err == nil {
+			targetDate = parsed
+		}
+	}
 
-	appointments, err := h.appointmentUsecase.GetByDoctorToday(userID)
+	appointments, err := h.appointmentUsecase.GetByDoctorDate(userID, targetDate)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return

@@ -55,7 +55,7 @@ func main() {
 	doctorH := handler.NewDoctorHandler(doctorUC)
 	scheduleH := handler.NewScheduleHandler(scheduleUC)
 	appointmentH := handler.NewAppointmentHandler(appointmentUC)
-	medRecordH := handler.NewMedicalRecordHandler(medRecordUC)
+	medRecordH := handler.NewMedicalRecordHandler(medRecordUC, patientRepo)
 	dashboardH := handler.NewDashboardHandler(dashboardUC)
 
 	// Setup Gin
@@ -66,11 +66,15 @@ func main() {
 	r := gin.Default()
 
 	// CORS
+	corsOrigins := []string{"http://localhost:5173", "http://localhost:3000", "http://localhost:4173"}
+	if cfg.AppEnv == "production" {
+		corsOrigins = []string{"*"}
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000"},
+		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
+		AllowCredentials: cfg.AppEnv != "production",
 	}))
 
 	// API v1
@@ -101,10 +105,6 @@ func main() {
 	adminOnly := protected.Group("/")
 	adminOnly.Use(middleware.RequireRole(entity.RoleAdmin))
 	{
-		// Patients (admin only for full list)
-		adminOnly.GET("/patients", patientH.GetAll)
-		adminOnly.GET("/patients/:id", patientH.GetByID)
-
 		// Doctor management
 		adminOnly.POST("/doctors", doctorH.Create)
 		adminOnly.PUT("/doctors/:id", doctorH.Update)
@@ -120,6 +120,14 @@ func main() {
 
 		// Dashboard
 		adminOnly.GET("/dashboard/admin", dashboardH.GetAdminStats)
+	}
+
+	// ── Admin or Doctor ──
+	adminOrDoctor := protected.Group("/")
+	adminOrDoctor.Use(middleware.RequireRole(entity.RoleAdmin, entity.RoleDoctor))
+	{
+		adminOrDoctor.GET("/patients", patientH.GetAll)
+		adminOrDoctor.GET("/patients/:id", patientH.GetByID)
 	}
 
 	// ── Doctor routes ──
@@ -141,6 +149,7 @@ func main() {
 		patientOnly.GET("/appointments/my", appointmentH.GetMyAppointments)
 		patientOnly.PUT("/patients/profile", patientH.UpdateMyProfile)
 		patientOnly.GET("/dashboard/patient", dashboardH.GetPatientStats)
+		patientOnly.GET("/medical-records/my", medRecordH.GetMyMedicalRecords)
 	}
 
 	// Shared: appointment detail + cancel

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
 import { medicalRecordApi } from '@/api/appointments'
+import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,10 +34,15 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
 
   const mutation = useMutation({
     mutationFn: medicalRecordApi.create,
-    onSuccess: () => onDone(),
+    onSuccess: () => {
+      toast.success('Rekam medis berhasil disimpan')
+      onDone()
+    },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } }
-      setError(e?.response?.data?.message || 'Gagal menyimpan rekam medis')
+      const msg = e?.response?.data?.message || 'Gagal menyimpan rekam medis'
+      toast.error('Gagal menyimpan rekam medis', msg)
+      setError(msg)
     },
   })
 
