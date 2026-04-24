@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, UserCog, Calendar, ClipboardList,
   Stethoscope, FileText, LogOut, Heart, ChevronLeft, Menu, X,
-  Activity
+  Activity, Shield
 } from 'lucide-react'
 
 const adminNavItems = [
@@ -14,6 +14,7 @@ const adminNavItems = [
   { label: 'Data Dokter', href: '/admin/doctors', icon: UserCog },
   { label: 'Jadwal Praktek', href: '/admin/schedules', icon: Calendar },
   { label: 'Semua Antrian', href: '/admin/appointments', icon: ClipboardList },
+  { label: 'Manajemen Pengguna', href: '/admin/users', icon: Shield },
 ]
 
 const doctorNavItems = [
@@ -27,6 +28,7 @@ const patientNavItems = [
   { label: 'Daftar Antrian', href: '/patient/book', icon: Calendar },
   { label: 'Antrian Saya', href: '/patient/my-queue', icon: ClipboardList },
   { label: 'Riwayat Medis', href: '/patient/medical-history', icon: Stethoscope },
+  { label: 'Pengaturan', href: '/patient/settings', icon: UserCog },
 ]
 
 const roleConfig = {

@@ -82,3 +82,16 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 
 	response.Success(c, "Profile updated", user)
 }
+
+func (h *AuthHandler) DeleteProfile(c *gin.Context) {
+	claims := middleware.GetCurrentUser(c)
+	userID, _ := uuid.Parse(claims.UserID)
+
+	err := h.authUsecase.DeleteProfile(userID)
+	if err != nil {
+		response.InternalServerError(c, err.Error())
+		return
+	}
+
+	response.Success(c, "Profile deleted successfully", nil)
+}

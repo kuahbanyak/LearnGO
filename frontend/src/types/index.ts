@@ -4,6 +4,10 @@ export interface User {
   role: 'admin' | 'doctor' | 'patient'
   full_name: string
   phone: string
+  nik?: string
+  gender?: string
+  address?: string
+  blood_type?: string
   is_active: boolean
   patient?: Patient
   doctor?: Doctor

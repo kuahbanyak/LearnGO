@@ -8,7 +8,11 @@ type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=8"`
 	FullName string `json:"full_name" binding:"required"`
-	Phone    string `json:"phone"`
+	Phone     string `json:"phone"`
+	NIK       string `json:"nik"`
+	Gender    string `json:"gender"`
+	Address   string `json:"address"`
+	BloodType string `json:"blood_type"`
 }
 
 type LoginRequest struct {
@@ -22,8 +26,12 @@ type LoginResponse struct {
 }
 
 type UpdateProfileRequest struct {
-	FullName string `json:"full_name"`
-	Phone    string `json:"phone"`
+	FullName  string `json:"full_name"`
+	Phone     string `json:"phone"`
+	NIK       string `json:"nik"`
+	Gender    string `json:"gender"`
+	Address   string `json:"address"`
+	BloodType string `json:"blood_type"`
 }
 
 // ========================

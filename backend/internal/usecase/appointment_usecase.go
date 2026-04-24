@@ -68,6 +68,11 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 		return nil, errors.New("patient profile not found")
 	}
 
+	// Validate complete user profile
+	if patient.User == nil || patient.User.NIK == "" || patient.User.Phone == "" || patient.User.FullName == "" || patient.User.Gender == "" || patient.User.Address == "" || patient.User.BloodType == "" {
+		return nil, errors.New("please complete your user profile (NIK, Phone, Full Name, Gender, Address, Blood Type) before booking")
+	}
+
 	// Validate schedule exists and matches doctor + day
 	schedule, err := u.scheduleRepo.FindByID(scheduleID)
 	if err != nil {

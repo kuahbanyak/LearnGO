@@ -17,6 +17,7 @@ import AdminDoctorsPage from '@/pages/admin/doctors'
 import AdminSchedulesPage from '@/pages/admin/schedules'
 import AdminPatientsPage from '@/pages/admin/patients'
 import AdminAppointmentsPage from '@/pages/admin/appointments'
+import AdminUsersPage from '@/pages/admin/users'
 
 // Doctor pages
 import DoctorDashboard from '@/pages/doctor/dashboard'
@@ -28,6 +29,7 @@ import PatientDashboard from '@/pages/patient/dashboard'
 import BookAppointmentPage from '@/pages/patient/book-appointment'
 import MyQueuePage from '@/pages/patient/my-queue'
 import MedicalHistoryPage from '@/pages/patient/medical-history'
+import PatientSettingsPage from '@/pages/patient/settings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +71,7 @@ export default function App() {
               <Route path="/admin/schedules"    element={<AdminSchedulesPage />} />
               <Route path="/admin/patients"     element={<AdminPatientsPage />} />
               <Route path="/admin/appointments" element={<AdminAppointmentsPage />} />
+              <Route path="/admin/users"        element={<AdminUsersPage />} />
             </Route>
           </Route>
 
@@ -88,6 +91,7 @@ export default function App() {
               <Route path="/patient/book"            element={<BookAppointmentPage />} />
               <Route path="/patient/my-queue"        element={<MyQueuePage />} />
               <Route path="/patient/medical-history" element={<MedicalHistoryPage />} />
+              <Route path="/patient/settings"        element={<PatientSettingsPage />} />
             </Route>
           </Route>
 

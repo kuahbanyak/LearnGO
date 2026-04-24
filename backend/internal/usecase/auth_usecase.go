@@ -16,6 +16,7 @@ type AuthUsecase interface {
 	Login(req *dto.LoginRequest, jwtExpiryHours int) (string, *entity.User, error)
 	GetProfile(userID uuid.UUID) (*entity.User, error)
 	UpdateProfile(userID uuid.UUID, req *dto.UpdateProfileRequest) (*entity.User, error)
+	DeleteProfile(userID uuid.UUID) error
 }
 
 type authUsecase struct {
@@ -47,6 +48,10 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		Role:         entity.RolePatient,
 		FullName:     req.FullName,
 		Phone:        req.Phone,
+		NIK:          req.NIK,
+		Gender:       req.Gender,
+		Address:      req.Address,
+		BloodType:    req.BloodType,
 		IsActive:     true,
 	}
 
@@ -102,10 +107,30 @@ func (u *authUsecase) UpdateProfile(userID uuid.UUID, req *dto.UpdateProfileRequ
 	if req.Phone != "" {
 		user.Phone = req.Phone
 	}
+	if req.NIK != "" {
+		user.NIK = req.NIK
+	}
+	if req.Gender != "" {
+		user.Gender = req.Gender
+	}
+	if req.Address != "" {
+		user.Address = req.Address
+	}
+	if req.BloodType != "" {
+		user.BloodType = req.BloodType
+	}
 
 	if err := u.userRepo.Update(user); err != nil {
 		return nil, errors.New("failed to update profile")
 	}
 
 	return user, nil
+}
+
+func (u *authUsecase) DeleteProfile(userID uuid.UUID) error {
+	_, err := u.userRepo.FindByID(userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	return u.userRepo.Delete(userID)
 }

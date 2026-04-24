@@ -7,6 +7,10 @@ export const authApi = {
     password: string
     full_name: string
     phone?: string
+    nik?: string
+    gender?: string
+    address?: string
+    blood_type?: string
   }) => apiClient.post<ApiResponse<User>>('/auth/register', data),
 
   login: (data: { email: string; password: string }) =>
@@ -14,6 +18,14 @@ export const authApi = {
 
   getProfile: () => apiClient.get<ApiResponse<User>>('/auth/me'),
 
-  updateProfile: (data: { full_name?: string; phone?: string }) =>
-    apiClient.put<ApiResponse<User>>('/auth/profile', data),
+  updateProfile: (data: { 
+    full_name?: string
+    phone?: string
+    nik?: string
+    gender?: string
+    address?: string
+    blood_type?: string
+  }) => apiClient.put<ApiResponse<User>>('/auth/profile', data),
+
+  deleteProfile: () => apiClient.delete<ApiResponse<null>>('/auth/me'),
 }

@@ -22,6 +22,10 @@ type User struct {
 	Role         Role           `gorm:"type:varchar(20);not null;default:'patient'" json:"role"`
 	FullName     string         `gorm:"not null" json:"full_name"`
 	Phone        string         `gorm:"type:varchar(20)" json:"phone"`
+	NIK          string         `gorm:"type:varchar(16);uniqueIndex" json:"nik"`
+	Gender       string         `gorm:"type:varchar(10)" json:"gender"`
+	Address      string         `gorm:"type:text" json:"address"`
+	BloodType    string         `gorm:"type:varchar(3)" json:"blood_type"`
 	IsActive     bool           `gorm:"default:true" json:"is_active"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`

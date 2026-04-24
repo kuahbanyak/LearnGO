@@ -26,6 +26,10 @@ erDiagram
         string Role
         string FullName
         string Phone
+        string NIK
+        string Gender
+        string Address
+        string BloodType
         boolean IsActive
         time CreatedAt
     }
@@ -143,10 +147,11 @@ flowchart TD
         D4[(DB: Medical Records)]
     end
 
-    %% Auth Flow
-    P -. "Register/Login" .-> P1
+    %% Auth & User Management Flow
+    P -. "Register/Login\nUpdate Profile" .-> P1
     D -. "Login" .-> P1
     A -. "Login" .-> P1
+    A -->|"Manage All Users\n(CRUD)"| P1
     P1 <--> D1
 
     %% Admin flows

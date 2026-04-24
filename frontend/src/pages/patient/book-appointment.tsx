@@ -8,9 +8,11 @@ import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DAYS } from '@/lib/utils'
+import { useAuthStore } from '@/store/auth-store'
 import type { DoctorSchedule } from '@/types'
 
 export default function BookAppointmentPage() {
+  const { user } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [step, setStep] = useState(1)
@@ -94,6 +96,26 @@ export default function BookAppointmentPage() {
         <Button onClick={() => navigate('/patient/dashboard')}
           className="gradient-primary text-white border-0 mt-4">
           Ke Beranda Sekarang
+        </Button>
+      </div>
+    )
+  }
+
+  const isProfileComplete = user?.nik && user?.phone && user?.full_name && user?.gender && user?.address && user?.blood_type
+
+  if (!isProfileComplete) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-4 max-w-md mx-auto text-center">
+        <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center">
+          <Calendar className="size-10 text-amber-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-900">Profil Belum Lengkap</h2>
+        <p className="text-muted-foreground">
+          Anda harus melengkapi profil Anda (NIK, No HP, Jenis Kelamin, Alamat, Golongan Darah) sebelum dapat membuat janji temu dengan dokter.
+        </p>
+        <Button onClick={() => navigate('/patient/settings')}
+          className="gradient-primary text-white border-0 mt-4 w-full">
+          Lengkapi Profil di Pengaturan
         </Button>
       </div>
     )

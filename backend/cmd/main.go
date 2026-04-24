@@ -48,6 +48,7 @@ func main() {
 	appointmentUC := usecase.NewAppointmentUsecase(appointmentRepo, scheduleRepo, patientRepo, doctorRepo)
 	medRecordUC := usecase.NewMedicalRecordUsecase(medRecordRepo, appointmentRepo, doctorRepo)
 	dashboardUC := usecase.NewDashboardUsecase(db, doctorRepo, patientRepo)
+	userUC := usecase.NewUserUsecase(userRepo)
 
 	// Initialize handlers
 	authH := handler.NewAuthHandler(authUC, cfg.JWTExpiryHours)
@@ -57,6 +58,7 @@ func main() {
 	appointmentH := handler.NewAppointmentHandler(appointmentUC)
 	medRecordH := handler.NewMedicalRecordHandler(medRecordUC, patientRepo)
 	dashboardH := handler.NewDashboardHandler(dashboardUC)
+	userH := handler.NewUserHandler(userUC)
 
 	// Setup Gin
 	if cfg.AppEnv == "production" {
@@ -87,6 +89,7 @@ func main() {
 		auth.POST("/login", authH.Login)
 		auth.GET("/me", middleware.AuthMiddleware(), authH.GetProfile)
 		auth.PUT("/profile", middleware.AuthMiddleware(), authH.UpdateProfile)
+		auth.DELETE("/me", middleware.AuthMiddleware(), authH.DeleteProfile)
 	}
 
 	// ── Authenticated routes ──
@@ -120,6 +123,12 @@ func main() {
 
 		// Dashboard
 		adminOnly.GET("/dashboard/admin", dashboardH.GetAdminStats)
+
+		// User management
+		adminOnly.GET("/users", userH.GetAll)
+		adminOnly.GET("/users/:id", userH.GetByID)
+		adminOnly.PUT("/users/:id", userH.Update)
+		adminOnly.DELETE("/users/:id", userH.Delete)
 	}
 
 	// ── Admin or Doctor ──
