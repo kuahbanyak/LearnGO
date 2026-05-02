@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Loader2, X, Eye, AlertTriangle } from 'lucide-react'
+import { ClipboardList, Loader2, X, Eye, AlertTriangle, Clock } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -125,25 +125,34 @@ export default function MyQueuePage() {
               </Button>
             </div>
           ) : (
-            <div className="divide-y">
-              {appointments.map(appt => (
-                <div key={appt.id} className="py-4 flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0 mt-0.5">
-                      {appt.queue_number}
+            <div className="space-y-4">
+              {appointments.map((appt, idx) => (
+                <div key={appt.id} className="p-4 rounded-xl border border-slate-100 bg-white hover:border-slate-200 hover:shadow-md transition-all stagger-item" style={{ animationDelay: `${idx * 60}ms` }}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-md shadow-blue-500/30">
+                        {appt.queue_number}
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-800">Dr. {appt.doctor?.user?.full_name}</h3>
+                        <p className="text-xs font-medium text-slate-500">{appt.doctor?.specialization}</p>
+                        <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg w-fit">
+                          <span className="flex items-center gap-1 font-medium text-slate-600">
+                            <Clock className="size-3.5 text-primary" />
+                            {formatDate(appt.appointment_date)}
+                          </span>
+                          {appt.schedule && (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <span className="font-medium">
+                                {appt.schedule.start_time} – {appt.schedule.end_time}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold">{appt.doctor?.user?.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{appt.doctor?.specialization}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{formatDate(appt.appointment_date)}</p>
-                      {appt.schedule && (
-                        <p className="text-xs text-muted-foreground">
-                          {appt.schedule.start_time} – {appt.schedule.end_time}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex flex-col items-end gap-3 shrink-0">
                     <Badge variant={
                       appt.status === 'waiting' ? 'secondary'
                       : appt.status === 'in_progress' ? 'default'
@@ -154,14 +163,15 @@ export default function MyQueuePage() {
                         : appt.status === 'in_progress' ? 'Ditangani'
                         : appt.status === 'completed' ? 'Selesai' : 'Dibatalkan'}
                     </Badge>
-                    <div className="flex gap-1.5">
-                      <button
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setSelectedAppt(appt)}
-                        className="p-1.5 rounded text-slate-400 hover:text-primary hover:bg-primary/10 transition-colors"
-                        title="Detail"
+                        className="h-8 text-xs font-medium bg-white text-slate-600 hover:text-primary hover:bg-blue-50 border-slate-200"
                       >
-                        <Eye className="size-3.5" />
-                      </button>
+                        <Eye className="size-3.5 mr-1" /> Detail
+                      </Button>
                       {appt.status === 'waiting' && (
                         <Button
                           variant="destructive"
@@ -172,13 +182,14 @@ export default function MyQueuePage() {
                             setAppointmentToCancel(appt.id)
                           }}
                           disabled={cancelMutation.isPending}
-                          className="rounded-lg shadow-sm ml-1"
+                          className="h-8 text-xs shadow-sm bg-red-500 hover:bg-red-600"
                         >
-                          Batal
+                          Batalkan
                         </Button>
                       )}
                     </div>
                   </div>
+                </div>
                 </div>
               ))}
             </div>

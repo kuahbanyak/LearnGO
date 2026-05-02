@@ -18,6 +18,7 @@ import AdminSchedulesPage from '@/pages/admin/schedules'
 import AdminPatientsPage from '@/pages/admin/patients'
 import AdminAppointmentsPage from '@/pages/admin/appointments'
 import AdminUsersPage from '@/pages/admin/users'
+import TvDisplayPage from '@/pages/admin/tv-display'
 
 // Doctor pages
 import DoctorDashboard from '@/pages/doctor/dashboard'
@@ -73,6 +74,8 @@ export default function App() {
               <Route path="/admin/appointments" element={<AdminAppointmentsPage />} />
               <Route path="/admin/users"        element={<AdminUsersPage />} />
             </Route>
+            {/* Standalone Pages without Layout */}
+            <Route path="/admin/tv-display"   element={<TvDisplayPage />} />
           </Route>
 
           {/* Doctor */}

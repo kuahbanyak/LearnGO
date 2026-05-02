@@ -46,7 +46,7 @@ func (r *scheduleRepository) FindByDoctorID(doctorID uuid.UUID) ([]entity.Doctor
 
 func (r *scheduleRepository) FindAll() ([]entity.DoctorSchedule, error) {
 	var schedules []entity.DoctorSchedule
-	err := r.db.Preload("Doctor.User").Where("is_active = true").
+	err := r.db.Preload("Doctor.User").
 		Order("day_of_week, start_time").Find(&schedules).Error
 	return schedules, err
 }

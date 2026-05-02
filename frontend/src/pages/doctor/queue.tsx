@@ -255,37 +255,41 @@ export default function DoctorQueuePage() {
 
 function AppointmentCard({ appt, estimatedTime }: { appt: Appointment; estimatedTime?: string }) {
   return (
-    <div className="p-3.5 rounded-xl bg-white border border-slate-100 flex items-center gap-3 hover:shadow-sm hover:border-slate-200 transition-all">
-      <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-md shadow-blue-500/20">
-        {appt.queue_number}
+    <div className="p-4 rounded-xl bg-white border border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 hover:shadow-md hover:border-slate-200 transition-all duration-200">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md shadow-blue-500/20">
+          {appt.queue_number}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-800 truncate">{appt.patient?.user?.full_name}</p>
+          {estimatedTime && appt.status === 'waiting' && (
+            <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1 mt-0.5">
+              <Clock className="size-3" />
+              {estimatedTime}
+            </p>
+          )}
+          {appt.status === 'in_progress' && appt.checked_in_at && (
+            <p className="text-[11px] text-blue-600 font-medium mt-0.5">
+              Masuk: {new Date(appt.checked_in_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
+          {appt.status === 'completed' && appt.completed_at && (
+            <p className="text-[11px] text-emerald-600 mt-0.5">
+              Selesai: {new Date(appt.completed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient?.user?.full_name}</p>
-        {estimatedTime && appt.status === 'waiting' && (
-          <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1">
-            <Clock className="size-2.5" />
-            {estimatedTime}
-          </p>
-        )}
-        {appt.status === 'in_progress' && appt.checked_in_at && (
-          <p className="text-[11px] text-blue-600 font-medium">
-            Masuk: {new Date(appt.checked_in_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-          </p>
-        )}
-        {appt.status === 'completed' && appt.completed_at && (
-          <p className="text-[11px] text-emerald-600">
-            Selesai: {new Date(appt.completed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-          </p>
-        )}
+      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0 border-t sm:border-0 pt-2 sm:pt-0 mt-2 sm:mt-0">
+        <Badge variant={
+          appt.status === 'waiting' ? 'secondary'
+          : appt.status === 'in_progress' ? 'default'
+          : 'outline'
+        } className="text-[10px] uppercase tracking-wider font-bold">
+          {appt.status === 'waiting' ? 'Tunggu'
+            : appt.status === 'in_progress' ? 'Ditangani' : 'Selesai'}
+        </Badge>
       </div>
-      <Badge variant={
-        appt.status === 'waiting' ? 'secondary'
-        : appt.status === 'in_progress' ? 'default'
-        : 'outline'
-      } className="ml-auto shrink-0 text-[11px]">
-        {appt.status === 'waiting' ? 'Tunggu'
-          : appt.status === 'in_progress' ? 'Ditangani' : 'Selesai'}
-      </Badge>
     </div>
   )
 }

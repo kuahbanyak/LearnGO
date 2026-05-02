@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, UserCog, Calendar, ClipboardList,
   Stethoscope, FileText, LogOut, Heart, ChevronLeft, Menu, X,
-  Activity, Shield
+  Activity, Shield, Tv
 } from 'lucide-react'
 
 const adminNavItems = [
@@ -15,6 +15,7 @@ const adminNavItems = [
   { label: 'Jadwal Praktek', href: '/admin/schedules', icon: Calendar },
   { label: 'Semua Antrian', href: '/admin/appointments', icon: ClipboardList },
   { label: 'Manajemen Pengguna', href: '/admin/users', icon: Shield },
+  { label: 'TV Display', href: '/admin/tv-display', icon: Tv },
 ]
 
 const doctorNavItems = [
