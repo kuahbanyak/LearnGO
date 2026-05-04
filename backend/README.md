@@ -1,216 +1,298 @@
-# MediQueue - Backend Wiki
+# MediQueue — Backend Wiki
 
-Sistem backend untuk aplikasi MediQueue (Aplikasi Antrian Pasien & Klinik Pintar). Dibangun menggunakan **Golang** dengan pola *Clean Architecture* untuk memastikan skalabilitas, kemudahan *testing*, dan struktur kode yang rapi.
-
-## 🚀 Teknologi yang Digunakan
-*   **Bahasa:** Golang (Go)
-*   **Web Framework:** Gin Web Framework
-*   **ORM / Database:** GORM dengan PostgreSQL
-*   **Autentikasi:** JWT (JSON Web Token) & bcrypt
-*   **Konfigurasi:** Godotenv (.env)
+> Sistem backend untuk MediQueue (Aplikasi Antrian Pasien & Klinik Pintar).  
+> Dibangun menggunakan **Golang** dengan pola **Clean Architecture**.
 
 ---
 
-## 📁 Struktur Folder (Clean Architecture)
+## 🚀 Technology Stack
 
-Proyek ini mengadaptasi Clean Architecture dengan pembagian layer yang jelas:
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| Language | Go 1.21+ | Compiled, typed, concurrent |
+| HTTP Framework | Gin | High-performance router |
+| ORM | GORM v2 | Code-first schema with AutoMigrate |
+| Database | PostgreSQL 14+ | UUID primary keys |
+| Auth | JWT (golang-jwt v5) + bcrypt | Stateless auth |
+| Config | godotenv | 12-factor config via `.env` |
+| Containerization | Docker + Docker Compose | Prod-ready compose file included |
 
-```text
+---
+
+## 📁 Folder Structure (Clean Architecture)
+
+```
 backend/
-├── cmd/               # Titik masuk (Entry point) aplikasi. Berisi main.go untuk inisialisasi router dan dependencies.
-├── infrastructure/    # Konfigurasi infrastruktur eksternal (Database Connection, dll).
+├── cmd/
+│   └── main.go              ← Entry point: wire deps, start Gin router
+├── config/
+│   └── config.go            ← Parse .env → Config struct
+├── infrastructure/
+│   └── database.go          ← PostgreSQL GORM connection + AutoMigrate
 ├── internal/
-│   ├── entity/        # Struktur data inti (Model/Schema). Tidak bergantung pada library luar.
-│   ├── repository/    # Layer untuk akses ke database (GORM). Mengimplementasikan interface.
-│   ├── usecase/       # Business Logic. Tempat aturan bisnis aplikasi berjalan.
-│   ├── handler/       # Controller (Gin). Menerima HTTP Request, validasi, dan memanggil Usecase.
-│   ├── middleware/    # Filter HTTP (Auth JWT, Role-based Access, CORS).
-├── config/            # Parsing file .env ke dalam struct Golang.
-└── scratch/           # Skrip pengujian sementara (bukan untuk production).
+│   ├── entity/              ← Domain models (pure structs, no framework deps)
+│   │   ├── user.go
+│   │   ├── patient.go
+│   │   ├── doctor.go
+│   │   ├── doctor_schedule.go
+│   │   ├── appointment.go
+│   │   ├── medical_record.go
+│   │   └── prescription.go
+│   ├── dto/                 ← Request/Response shapes (separate from entities)
+│   ├── repository/          ← GORM queries implementing domain interfaces
+│   ├── usecase/             ← Pure business logic, calls repository interfaces
+│   ├── handler/             ← Gin controllers: parse HTTP, validate, call usecase
+│   └── middleware/          ← JWT auth, RBAC role guard, CORS headers
+├── pkg/
+│   └── response/            ← Standard JSON response helpers
+└── docker-compose.yml       ← Postgres + App container stack
+```
+
+### Layer Dependency Rule
+
+```
+Handler → Usecase → Repository → Database
+  ↑ (no cross-layer imports allowed in opposite direction)
 ```
 
 ---
 
-## 🔐 Role & Permissions (Hak Akses)
-Aplikasi memiliki 3 jenis peran utama:
-1.  **Admin:** Akses penuh ke semua data (Dashboard Admin, Kelola Pasien, Kelola Dokter, Kelola Jadwal, dan Semua Antrian).
-2.  **Doctor (Dokter):** Akses spesifik untuk menangani antrian hariannya dan melihat rekam medis pasien yang pernah ditanganinya.
-3.  **Patient (Pasien):** Akses personal untuk mendaftar antrian, melihat antrian pribadi, dan melihat riwayat medis pribadi.
+## 🗄️ Database Schema
+
+### ERD Overview
+
+```
+users ──────────── patients ──── appointments ──── medical_records ──── prescriptions
+     └──────────── doctors ─┤        ↑
+                             └── doctor_schedules
+```
+
+### Table Definitions
+
+| Table | Key Columns |
+|-------|-------------|
+| `users` | `id UUID PK`, `email`, `password_hash`, `role` (admin/doctor/patient), `full_name`, `nik`, `is_active` |
+| `patients` | `id UUID PK`, `user_id FK`, `date_of_birth`, `blood_type`, `allergies` |
+| `doctors` | `id UUID PK`, `user_id FK`, `specialization`, `sip_number` |
+| `doctor_schedules` | `id UUID PK`, `doctor_id FK`, `day_of_week` (0–6), `start_time`, `end_time`, `max_patient`, `is_active` |
+| `appointments` | `id UUID PK`, `patient_id FK`, `doctor_id FK`, `schedule_id FK`, `appointment_date`, `queue_number`, `status`, `cancel_reason`, `checked_in_at`, `completed_at` |
+| `medical_records` | `id UUID PK`, `appointment_id FK`, `patient_id FK`, `doctor_id FK`, `complaint`, `diagnosis`, `icd_code`, `action_taken`, `doctor_notes` |
+| `prescriptions` | `id UUID PK`, `medical_record_id FK`, `medicine_name`, `dosage`, `quantity`, `usage_instruction`, `notes` |
+
+### Appointment Status Flow
+
+```
+POST /appointments → [waiting]
+                          │
+PATCH status in_progress ─┤→ [in_progress]
+                          │
+PATCH status completed ───┤→ [completed]
+                          │
+PATCH /cancel ────────────┴→ [cancelled]
+```
 
 ---
 
-## 📡 Detail API Endpoints (Berdasarkan Role)
+## 🔐 Role & Permissions
 
-Seluruh respons dari API menggunakan format JSON standar berikut:
+The system has 3 roles. The JWT payload contains `role` and `user_id`.
+
+| Role | Access Level |
+|------|-------------|
+| `admin` | Full access to all resources; can create doctors, schedules; sees all queues |
+| `doctor` | Own queue only; can create medical records; can view any patient profile |
+| `patient` | Own appointments, own medical records, own profile only |
+
+### Middleware Chain
+
+```
+AllRoutes → CORS middleware
+AuthRequired routes → JWT middleware → extract user_id + role
+Role-locked routes → RBAC middleware → check role in allowed list
+```
+
+---
+
+## 📡 API Reference
+
+### Base URL
+```
+http://localhost:8080/api/v1
+```
+
+### Standard Response Envelope
 ```json
 {
   "status": 200,
-  "message": "Success message",
-  "data": { ... },
-  "meta": { ... } // Opsional, untuk pagination
+  "message": "Success",
+  "data": { },
+  "meta": {
+    "page": 1,
+    "per_page": 10,
+    "total": 100,
+    "total_pages": 10
+  }
 }
+```
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| 400 | Bad Request — validation failed |
+| 401 | Unauthorized — missing or invalid JWT |
+| 403 | Forbidden — correct JWT but wrong role |
+| 404 | Not Found |
+| 409 | Conflict — duplicate (e.g. same schedule slot) |
+| 422 | Unprocessable — business rule violation |
+| 500 | Internal Server Error |
+
+---
+
+### 🟢 Public Endpoints (No Token)
+
+#### `POST /auth/register`
+Register a new patient account.
+```json
+// Request
+{
+  "email": "pasien@mail.com",
+  "password": "Min8Chars!",
+  "full_name": "Budi Santoso",
+  "nik": "3201234567890001",
+  "date_of_birth": "1990-01-01",
+  "gender": "male",
+  "address": "Jl. Merdeka No.1"
+}
+// Response: user object
+```
+
+#### `POST /auth/login`
+```json
+// Request
+{ "email": "user@mail.com", "password": "password" }
+// Response
+{ "token": "eyJhbGci..." , "user": { "id": "...", "role": "patient", ... } }
 ```
 
 ---
 
-### 🟢 1. Public API (Tidak Butuh Token)
+### 🔵 Patient Endpoints
 
-#### `POST /api/v1/auth/register`
-Mendaftarkan pasien baru.
-*   **Request Body:**
-    ```json
-    {
-      "email": "pasien@mail.com",
-      "password": "password123",
-      "full_name": "Budi Santoso",
-      "nik": "3201234567890001",
-      "date_of_birth": "1990-01-01",
-      "gender": "male",
-      "address": "Jl. Merdeka No.1"
-    }
-    ```
-*   **Response:** Mengembalikan objek user.
+> Header: `Authorization: Bearer <token>`
 
-#### `POST /api/v1/auth/login`
-Login untuk mendapatkan akses.
-*   **Request Body:**
-    ```json
-    {
-      "email": "pasien@mail.com",
-      "password": "password123"
-    }
-    ```
-*   **Response:** Mengembalikan `{"token": "ey..."}`.
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard/patient` | Stats: waiting, today_queue, completed_today |
+| `POST` | `/appointments` | Book new appointment |
+| `GET` | `/appointments/my` | My appointment history (paginated) |
+| `PATCH` | `/appointments/:id/cancel` | Cancel own appointment |
+| `GET` | `/medical-records/my` | My full medical records + prescriptions |
+| `PUT` | `/auth/profile` | Update own profile |
+| `GET` | `/doctors` | List available doctors |
+| `GET` | `/schedules` | List active schedules |
 
 ---
 
-### 🔵 2. Role: Patient (Pasien)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
+### 🩺 Doctor Endpoints
 
-#### `POST /api/v1/appointments`
-Mendaftar antrian baru.
-*   **Request Body:**
-    ```json
-    {
-      "doctor_id": "uuid-dokter",
-      "schedule_id": "uuid-jadwal",
-      "appointment_date": "2026-04-27"
-    }
-    ```
-*   **Response:** Objek antrian beserta `queue_number`.
+> Header: `Authorization: Bearer <token>`
 
-#### `GET /api/v1/appointments/my`
-Melihat seluruh riwayat antrian pasien.
-*   **Query Params:** `?page=1&per_page=10`
-
-#### `GET /api/v1/medical-records/my`
-Melihat seluruh rekam medis dan resep obat yang diterima pasien.
-
-#### `GET /api/v1/dashboard/patient`
-Mendapatkan statistik dasbor (Jumlah antrian hari ini, antrian menunggu, rekam medis).
-
-#### `PUT /api/v1/auth/profile`
-Memperbarui data profil pasien.
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard/doctor` | Stats: today patients, waiting |
+| `GET` | `/appointments/today?date=YYYY-MM-DD` | Today's queue list |
+| `PATCH` | `/appointments/:id/status` | Update queue status |
+| `POST` | `/medical-records` | Create diagnosis + prescriptions |
+| `GET` | `/medical-records` | All records created by this doctor |
+| `GET` | `/patients` | Patient directory |
+| `GET` | `/patients/:id` | Single patient profile |
+| `GET` | `/medical-records/patient/:id` | Patient's medical history |
+| `PATCH` | `/schedules/:id/toggle` | Toggle schedule active status |
 
 ---
 
-### 🩺 3. Role: Doctor (Dokter)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
+### 🔴 Admin Endpoints
 
-#### `GET /api/v1/appointments/today`
-Melihat daftar antrian pasien untuk dokter tersebut hari ini atau tanggal tertentu.
-*   **Query Params:** `?date=2026-04-27` (Opsional)
+> Header: `Authorization: Bearer <token>`
 
-#### `PATCH /api/v1/appointments/:id/status`
-Memperbarui status antrian (contoh: memanggil pasien masuk atau menyelesaikan konsultasi).
-*   **Request Body:**
-    ```json
-    {
-      "status": "in_progress" // "in_progress", "completed", atau "waiting"
-    }
-    ```
-
-#### `POST /api/v1/medical-records`
-Mengisi diagnosa rekam medis dan meresepkan obat.
-*   **Request Body:**
-    ```json
-    {
-      "appointment_id": "uuid-antrian",
-      "patient_id": "uuid-pasien",
-      "complaint": "Pusing 3 hari",
-      "diagnosis": "Flu",
-      "doctor_notes": "Istirahat cukup",
-      "icd_code": "J00",
-      "prescriptions": [
-        {
-          "medicine_name": "Paracetamol",
-          "dosage": "500mg",
-          "quantity": 10,
-          "usage_instruction": "3x sehari"
-        }
-      ]
-    }
-    ```
-
-#### `GET /api/v1/dashboard/doctor`
-Mendapatkan statistik dokter (jumlah pasien hari ini, pasien menunggu).
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard/admin` | Full clinic stats |
+| `GET` | `/appointments` | All appointments (filterable by date) |
+| `POST` | `/doctors` | Create doctor account |
+| `PUT` | `/doctors/:id` | Update doctor |
+| `DELETE` | `/doctors/:id` | Delete doctor |
+| `POST` | `/schedules` | Create practice schedule |
+| `PUT` | `/schedules/:id` | Update schedule |
+| `DELETE` | `/schedules/:id` | Delete schedule |
+| `GET` | `/users` | All user accounts |
+| `PATCH` | `/users/:id/toggle` | Activate/deactivate user |
 
 ---
 
-### 🔴 4. Role: Admin
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
+## ⚙️ Environment Variables
 
-#### `GET /api/v1/dashboard/admin`
-Statistik penuh untuk klinik (Total pasien, total dokter, total jadwal).
-
-#### `POST /api/v1/doctors` & `PUT /api/v1/doctors/:id` & `DELETE /api/v1/doctors/:id`
-Manajemen master data dokter.
-
-#### `POST /api/v1/schedules` & `PUT /api/v1/schedules/:id` & `DELETE /api/v1/schedules/:id`
-Manajemen jadwal praktek dokter (hari, jam, kuota maksimal).
-
-#### `GET /api/v1/appointments`
-Melihat **seluruh** antrian klinik dari seluruh dokter.
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `PORT` | ✅ | HTTP server port | `8080` |
+| `DB_HOST` | ✅ | PostgreSQL hostname | `localhost` |
+| `DB_PORT` | ✅ | PostgreSQL port | `5432` |
+| `DB_USER` | ✅ | DB username | `postgres` |
+| `DB_PASSWORD` | ✅ | DB password | `secret123` |
+| `DB_NAME` | ✅ | Database name | `mediqueue` |
+| `JWT_SECRET` | ✅ | HMAC signing key (keep secret!) | `supersecretkey` |
 
 ---
 
-### 🟡 5. Shared Roles (Hak Akses Gabungan)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
+## 🏃 Running the Backend
 
-#### `GET /api/v1/patients` & `GET /api/v1/patients/:id` (Admin & Doctor)
-Melihat data direktori pasien. Dokter membutuhkan ini untuk melihat riwayat pasien.
+### Option A — Docker (Recommended)
+```bash
+cd backend/
+docker-compose up -d
+```
 
-#### `GET /api/v1/medical-records/patient/:id` (Admin & Doctor)
-Melihat riwayat rekam medis dari pasien tertentu.
+### Option B — Native Go
+```bash
+# Prerequisites: PostgreSQL running, .env configured
+cd backend/
+cp .env.example .env
+# Edit .env with your values
 
-#### `PATCH /api/v1/schedules/:id/toggle` (Admin & Doctor)
-Mengaktifkan atau menonaktifkan jadwal praktek tertentu secara cepat.
-
-#### `PATCH /api/v1/appointments/:id/cancel` (Semua Role Login)
-Membatalkan antrian. Pasien bisa membatalkan antriannya sendiri, Admin bisa membatalkan antrian siapapun.
-
-#### `GET /api/v1/doctors` & `GET /api/v1/schedules` (Semua Role Login)
-Membaca daftar dokter dan jadwal yang aktif (biasanya digunakan pasien untuk mendaftar).
+go mod tidy
+go run ./cmd/main.go
+# → Server at http://localhost:8080
+```
 
 ---
 
-## 🛠 Cara Menjalankan Server Lokal
+## 🧩 Adding a New Feature (Checklist)
 
-1.  Pastikan PostgreSQL sudah menyala dan database `mediqueue` sudah terbuat.
-2.  Sesuaikan file `.env`:
-    ```env
-    PORT=8080
-    DB_HOST=localhost
-    DB_USER=postgres
-    DB_PASSWORD=password_anda
-    DB_NAME=mediqueue
-    DB_PORT=5432
-    JWT_SECRET=supersecretkey
-    ```
-3.  Buka terminal di folder `backend/`.
-4.  Jalankan perintah:
-    ```bash
-    go mod tidy
-    go run .\cmd\main.go
-    ```
-5.  Server akan berjalan di `http://localhost:8080`.
+- [ ] Add entity struct in `internal/entity/`
+- [ ] Define DTO request/response in `internal/dto/`
+- [ ] Write repository interface + GORM implementation in `internal/repository/`
+- [ ] Implement business logic in `internal/usecase/`
+- [ ] Write Gin handler in `internal/handler/`
+- [ ] Register route in `cmd/main.go` with correct middleware
+- [ ] Add entity to `AutoMigrate` list in `infrastructure/database.go`
+- [ ] Write a test in the corresponding `_test.go` file
+
+---
+
+## 📈 Innovation Roadmap
+
+| Priority | Feature | Backend Task |
+|----------|---------|--------------|
+| 🔴 High | **WebSocket Live Queue** | Add `gorilla/websocket`; broadcast on status change |
+| 🔴 High | **WhatsApp Notification** | Trigger via `go-whatsapp` on `in_progress` |
+| 🔴 High | **QR Code Check-in** | `skip2/go-qrcode` on appointment creation |
+| 🟡 Medium | **Analytics API** | `GET /analytics` for peak hours, cancellation rate |
+| 🟡 Medium | **PDF Export** | `jung-kurt/gofpdf` for daily queue report |
+| 🟢 Quick | **Appointment Reschedule** | `PATCH /appointments/:id/reschedule` |
+| 🟢 Quick | **Email Reminder** | `robfig/cron` + SMTP cron job |
+| 🟢 Quick | **Search & Filter** | Add `?search=&status=&date=` to list endpoints |
+
+---
+
+*MediQueue Backend Wiki · v1.0 · May 2026*
