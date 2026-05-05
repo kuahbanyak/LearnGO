@@ -14,7 +14,9 @@ type AppointmentRepository interface {
 	FindByID(id uuid.UUID) (*entity.Appointment, error)
 	FindAll(limit, offset int, status, date string) ([]entity.Appointment, int64, error)
 	FindByPatientID(patientID uuid.UUID, limit, offset int) ([]entity.Appointment, int64, error)
+	GetByPatientID(patientID uuid.UUID, page, perPage int) ([]entity.Appointment, int64, error)
 	FindByDoctorIDAndDate(doctorID uuid.UUID, date time.Time) ([]entity.Appointment, error)
+	GetByDateRange(startDate, endDate time.Time, doctorID, status string) ([]entity.Appointment, error)
 	CountByScheduleAndDate(scheduleID uuid.UUID, date time.Time) (int64, error)
 	NextQueueNumber(scheduleID uuid.UUID, date time.Time) (int, error)
 	Update(appointment *entity.Appointment) error
@@ -71,6 +73,45 @@ func (r *appointmentRepository) FindByPatientID(patientID uuid.UUID, limit, offs
 		Preload("Doctor.User").Preload("Schedule").Preload("MedicalRecord").
 		Order("appointment_date DESC").Limit(limit).Offset(offset).Find(&appointments).Error
 	return appointments, total, err
+}
+
+func (r *appointmentRepository) GetByPatientID(patientID uuid.UUID, page, perPage int) ([]entity.Appointment, int64, error) {
+	var appointments []entity.Appointment
+	var total int64
+
+	r.db.Model(&entity.Appointment{}).Where("patient_id = ?", patientID).Count(&total)
+
+	err := r.db.Where("patient_id = ?", patientID).
+		Preload("Doctor.User").
+		Preload("Schedule").
+		Order("appointment_date DESC, created_at DESC").
+		Offset((page - 1) * perPage).
+		Limit(perPage).
+		Find(&appointments).Error
+
+	return appointments, total, err
+}
+
+func (r *appointmentRepository) GetByDateRange(startDate, endDate time.Time, doctorID, status string) ([]entity.Appointment, error) {
+	var appointments []entity.Appointment
+
+	query := r.db.Model(&entity.Appointment{}).
+		Where("appointment_date >= ? AND appointment_date <= ?", startDate, endDate).
+		Preload("Patient.User").
+		Preload("Doctor.User").
+		Preload("Schedule").
+		Order("appointment_date ASC, queue_number ASC")
+
+	if doctorID != "" {
+		query = query.Where("doctor_id = ?", doctorID)
+	}
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	err := query.Find(&appointments).Error
+	return appointments, err
 }
 
 func (r *appointmentRepository) FindByDoctorIDAndDate(doctorID uuid.UUID, date time.Time) ([]entity.Appointment, error) {

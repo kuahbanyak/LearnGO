@@ -1,15 +1,39 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Stethoscope, Loader2, ChevronDown, ChevronUp, Pill } from 'lucide-react'
+import { Stethoscope, Loader2, ChevronDown, ChevronUp, Pill, Download } from 'lucide-react'
 import { medicalRecordApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDate } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 import type { MedicalRecord } from '@/types'
 
 function MedicalRecordCard({ record }: { record: MedicalRecord }) {
   const [expanded, setExpanded] = useState(false)
+
+  const handleDownloadPDF = async () => {
+    try {
+      const token = localStorage.getItem('mediqueue-auth')
+      const authToken = token ? JSON.parse(token).state?.token : ''
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'}/medical-records/${record.id}/pdf`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      })
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `rekam_medis_${formatDate(record.created_at).replace(/\s/g, '_')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      toast.success('PDF berhasil diunduh')
+    } catch {
+      toast.error('Gagal mengunduh PDF')
+    }
+  }
 
   return (
     <div className="border rounded-xl overflow-hidden">
@@ -73,6 +97,16 @@ function MedicalRecordCard({ record }: { record: MedicalRecord }) {
               </div>
             </div>
           )}
+
+          {/* Download PDF Button */}
+          <Button
+            onClick={handleDownloadPDF}
+            variant="outline"
+            size="sm"
+            className="w-full mt-2"
+          >
+            <Download className="size-3.5 mr-1.5" /> Download PDF
+          </Button>
         </div>
       )}
     </div>
@@ -82,7 +116,6 @@ function MedicalRecordCard({ record }: { record: MedicalRecord }) {
 export default function MedicalHistoryPage() {
   const [page, setPage] = useState(1)
 
-  // Gunakan endpoint /medical-records/my — patient akses rekam medisnya sendiri via JWT
   const { data, isLoading } = useQuery({
     queryKey: ['my-medical-records', page],
     queryFn: () => medicalRecordApi.getMy({ page }),

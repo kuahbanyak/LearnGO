@@ -19,6 +19,7 @@ type AppointmentUsecase interface {
 	GetByID(id uuid.UUID) (*entity.Appointment, error)
 	UpdateStatus(id uuid.UUID, req *dto.UpdateAppointmentStatusRequest) (*entity.Appointment, error)
 	Cancel(id uuid.UUID, actorRole string, actorUserID uuid.UUID, reason string) error
+	Reschedule(patientUserID uuid.UUID, appointmentID uuid.UUID, scheduleID uuid.UUID, newDate time.Time) (*entity.Appointment, error)
 }
 
 type appointmentUsecase struct {

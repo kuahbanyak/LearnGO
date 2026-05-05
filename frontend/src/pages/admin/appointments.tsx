@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Loader2, Search, Clock, UserCheck, CheckCircle, XCircle, Calendar as CalendarIcon, Filter, AlertTriangle } from 'lucide-react'
+import { ClipboardList, Loader2, Search, Clock, UserCheck, CheckCircle, XCircle, Calendar as CalendarIcon, Filter, AlertTriangle, Download } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,6 +23,7 @@ export default function AdminAppointmentsPage() {
   const [status, setStatus] = useState('')
   const [date, setDate] = useState('')
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => appointmentApi.cancel(id),
@@ -61,11 +62,63 @@ export default function AdminAppointmentsPage() {
     return s
   }
 
+  const handleExportPDF = async () => {
+    setIsExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (date) params.append('start_date', date)
+      if (status) params.append('status', status)
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'}/export/appointments?${params.toString()}&format=pdf`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('mediqueue-auth') ? JSON.parse(localStorage.getItem('mediqueue-auth')!).state?.token : ''}`,
+        },
+      })
+      
+      if (!response.ok) throw new Error('Export failed')
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `appointments_${new Date().toISOString().split('T')[0]}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      toast.success('PDF berhasil diunduh')
+    } catch (error) {
+      toast.error('Gagal mengekspor PDF')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Semua Antrian</h1>
-        <p className="text-slate-500 mt-1">Pantau seluruh antrian di klinik</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Semua Antrian</h1>
+          <p className="text-slate-500 mt-1">Pantau seluruh antrian di klinik</p>
+        </div>
+        <Button
+          onClick={handleExportPDF}
+          disabled={isExporting || isLoading}
+          className="gradient-primary text-white border-0 shadow-lg shadow-blue-500/20"
+        >
+          {isExporting ? (
+            <>
+              <Loader2 className="size-4 mr-2 animate-spin" />
+              Mengekspor...
+            </>
+          ) : (
+            <>
+              <Download className="size-4 mr-2" />
+              Export PDF
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Filters Area */}

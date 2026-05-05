@@ -22,6 +22,42 @@ export const appointmentApi = {
 
   cancel: (id: string, reason?: string) =>
     apiClient.patch<ApiResponse<null>>(`/appointments/${id}/cancel`, { reason }),
+
+  reschedule: (id: string, data: { schedule_id: string; appointment_date: string }) =>
+    apiClient.patch<ApiResponse<Appointment>>(`/appointments/${id}/reschedule`, data),
+}
+
+export const exportApi = {
+  downloadPDF: async (params?: { start_date?: string; end_date?: string; status?: string }) => {
+    const queryParams = new URLSearchParams()
+    if (params?.start_date) queryParams.append('start_date', params.start_date)
+    if (params?.end_date) queryParams.append('end_date', params.end_date)
+    if (params?.status) queryParams.append('status', params.status)
+    
+    const token = localStorage.getItem('mediqueue-auth')
+    const authToken = token ? JSON.parse(token).state?.token : ''
+    
+    const response = await fetch(
+      `${import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'}/export/appointments?${queryParams.toString()}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+      }
+    )
+    
+    if (!response.ok) throw new Error('Export failed')
+    
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `appointments_${new Date().toISOString().split('T')[0]}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  },
 }
 
 export const medicalRecordApi = {
