@@ -37,6 +37,9 @@ func Migrate(db *gorm.DB) {
 		&entity.Appointment{},
 		&entity.MedicalRecord{},
 		&entity.Prescription{},
+		&entity.Rating{},
+		&entity.CheckInToken{},
+		&entity.SymptomScreening{},
 	)
 	if err != nil {
 		log.Fatalf("Migration failed: %v", err)

@@ -19,6 +19,8 @@ import AdminPatientsPage from '@/pages/admin/patients'
 import AdminAppointmentsPage from '@/pages/admin/appointments'
 import AdminUsersPage from '@/pages/admin/users'
 import TvDisplayPage from '@/pages/admin/tv-display'
+import AnalyticsPage from '@/pages/admin/analytics'
+import CheckInPage from '@/pages/public/check-in'
 
 // Doctor pages
 import DoctorDashboard from '@/pages/doctor/dashboard'
@@ -73,9 +75,11 @@ export default function App() {
               <Route path="/admin/patients"     element={<AdminPatientsPage />} />
               <Route path="/admin/appointments" element={<AdminAppointmentsPage />} />
               <Route path="/admin/users"        element={<AdminUsersPage />} />
+              <Route path="/admin/analytics"    element={<AnalyticsPage />} />
             </Route>
             {/* Standalone Pages without Layout */}
             <Route path="/admin/tv-display"   element={<TvDisplayPage />} />
+            <Route path="/check-in"          element={<CheckInPage />} />
           </Route>
 
           {/* Doctor */}

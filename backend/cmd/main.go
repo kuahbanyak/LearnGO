@@ -10,6 +10,7 @@ import (
 	"mediqueue/internal/middleware"
 	"mediqueue/internal/repository"
 	"mediqueue/internal/usecase"
+	"mediqueue/internal/ws"
 	"mediqueue/pkg/utils"
 
 	"github.com/gin-contrib/cors"
@@ -32,6 +33,10 @@ func main() {
 	// Run seeder
 	database.Seed(db, cfg)
 
+	// Initialize WebSocket hub
+	hub := ws.NewHub()
+	go hub.Run()
+
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	patientRepo := repository.NewPatientRepository(db)
@@ -39,6 +44,9 @@ func main() {
 	scheduleRepo := repository.NewScheduleRepository(db)
 	appointmentRepo := repository.NewAppointmentRepository(db)
 	medRecordRepo := repository.NewMedicalRecordRepository(db)
+	ratingRepo := repository.NewRatingRepository(db)
+	checkInTokenRepo := repository.NewCheckInTokenRepository(db)
+	symptomScreeningRepo := repository.NewSymptomScreeningRepository(db)
 
 	// Initialize use cases
 	authUC := usecase.NewAuthUsecase(userRepo, patientRepo)
@@ -49,6 +57,10 @@ func main() {
 	medRecordUC := usecase.NewMedicalRecordUsecase(medRecordRepo, appointmentRepo, doctorRepo)
 	dashboardUC := usecase.NewDashboardUsecase(db, doctorRepo, patientRepo)
 	userUC := usecase.NewUserUsecase(userRepo)
+	analyticsUC := usecase.NewAnalyticsUsecase(db)
+	ratingUC := usecase.NewRatingUsecase(ratingRepo, appointmentRepo, patientRepo, doctorRepo)
+	checkInUC := usecase.NewCheckInUsecase(checkInTokenRepo, appointmentRepo)
+	symptomScreeningUC := usecase.NewSymptomScreeningUsecase(symptomScreeningRepo, appointmentRepo, patientRepo)
 
 	// Initialize handlers
 	authH := handler.NewAuthHandler(authUC, cfg.JWTExpiryHours)
@@ -59,6 +71,13 @@ func main() {
 	medRecordH := handler.NewMedicalRecordHandler(medRecordUC, patientRepo)
 	dashboardH := handler.NewDashboardHandler(dashboardUC)
 	userH := handler.NewUserHandler(userUC)
+	analyticsH := handler.NewAnalyticsHandler(analyticsUC)
+	ratingH := handler.NewRatingHandler(ratingUC)
+	wsH := handler.NewWebSocketHandler(hub)
+	checkInH := handler.NewCheckInHandler(checkInUC)
+	exportH := handler.NewExportHandler(appointmentRepo)
+	symptomScreeningH := handler.NewSymptomScreeningHandler(symptomScreeningUC)
+	medRecordExportH := handler.NewMedicalRecordExportHandler(medRecordRepo)
 
 	// Setup Gin
 	if cfg.AppEnv == "production" {
@@ -78,6 +97,9 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: cfg.AppEnv != "production",
 	}))
+
+	// WebSocket endpoint (before API group)
+	r.GET("/api/v1/ws", wsH.HandleConnection)
 
 	// API v1
 	api := r.Group("/api/v1")
@@ -129,6 +151,12 @@ func main() {
 		adminOnly.GET("/users/:id", userH.GetByID)
 		adminOnly.PUT("/users/:id", userH.Update)
 		adminOnly.DELETE("/users/:id", userH.Delete)
+
+		// Analytics
+		adminOnly.GET("/analytics", analyticsH.GetAnalytics)
+
+		// Export
+		adminOnly.GET("/export/appointments", exportH.ExportAppointments)
 	}
 
 	// ── Admin or Doctor ──
@@ -164,7 +192,24 @@ func main() {
 	// Shared: appointment detail + cancel
 	protected.GET("/appointments/:id", appointmentH.GetByID)
 	protected.PATCH("/appointments/:id/cancel", appointmentH.Cancel)
+	protected.PATCH("/appointments/:id/reschedule", appointmentH.RescheduleAppointment)
 	protected.GET("/medical-records/:id", medRecordH.GetByID)
+	protected.GET("/medical-records/:id/pdf", medRecordExportH.ExportPDF)
+
+	// Ratings (patient creates, all can view)
+	patientOnly.POST("/ratings", ratingH.Create)
+	protected.GET("/ratings/doctor/:id", ratingH.GetByDoctor)
+	protected.GET("/ratings/doctor/:id/summary", ratingH.GetDoctorSummary)
+
+	// QR Check-in
+	protected.GET("/appointments/:id/qr", checkInH.GetQRCode) // Patient/Admin
+	protected.GET("/appointments/:id/check-in-status", checkInH.GetCheckInStatus)
+	r.PATCH("/api/v1/check-in/:token", checkInH.CheckIn) // Public endpoint for scanning
+
+	// Symptom Screening
+	protected.POST("/symptom-screenings", symptomScreeningH.Create)
+	protected.GET("/symptom-screenings/my", symptomScreeningH.GetMyScreenings)
+	protected.GET("/appointments/:id/symptoms", symptomScreeningH.GetByAppointment)
 
 	// Schedule toggle: admin + doctor
 	protected.Use(middleware.RequireRole(entity.RoleAdmin, entity.RoleDoctor)).

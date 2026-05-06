@@ -1,216 +1,571 @@
-# MediQueue - Backend Wiki
+# MediQueue — Backend Wiki
 
-Sistem backend untuk aplikasi MediQueue (Aplikasi Antrian Pasien & Klinik Pintar). Dibangun menggunakan **Golang** dengan pola *Clean Architecture* untuk memastikan skalabilitas, kemudahan *testing*, dan struktur kode yang rapi.
-
-## 🚀 Teknologi yang Digunakan
-*   **Bahasa:** Golang (Go)
-*   **Web Framework:** Gin Web Framework
-*   **ORM / Database:** GORM dengan PostgreSQL
-*   **Autentikasi:** JWT (JSON Web Token) & bcrypt
-*   **Konfigurasi:** Godotenv (.env)
+> Sistem backend untuk MediQueue (Aplikasi Antrian Pasien & Klinik Pintar).  
+> Dibangun menggunakan **Golang** dengan pola **Clean Architecture**.
 
 ---
 
-## 📁 Struktur Folder (Clean Architecture)
+## 🚀 Technology Stack
 
-Proyek ini mengadaptasi Clean Architecture dengan pembagian layer yang jelas:
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| Language | Go 1.21+ | Compiled, typed, concurrent |
+| HTTP Framework | Gin | High-performance router |
+| ORM | GORM v2 | Code-first schema with AutoMigrate |
+| Database | PostgreSQL 14+ | UUID primary keys |
+| Auth | JWT (golang-jwt v5) + bcrypt | Stateless auth |
+| WebSocket | gorilla/websocket | Real-time communication |
+| PDF Export | gofpdf | Medical record PDF generation |
+| QR Code | skip2/go-qrcode | Patient check-in QR codes |
+| Config | godotenv | 12-factor config via `.env` |
+| Containerization | Docker + Docker Compose | Prod-ready compose file included |
 
-```text
+---
+
+## 📁 Folder Structure (Clean Architecture)
+
+```
 backend/
-├── cmd/               # Titik masuk (Entry point) aplikasi. Berisi main.go untuk inisialisasi router dan dependencies.
-├── infrastructure/    # Konfigurasi infrastruktur eksternal (Database Connection, dll).
+├── cmd/
+│   └── main.go              ← Entry point: wire deps, start Gin router
+├── config/
+│   └── config.go            ← Parse .env → Config struct
+├── infrastructure/
+│   └── database.go          ← PostgreSQL GORM connection + AutoMigrate
 ├── internal/
-│   ├── entity/        # Struktur data inti (Model/Schema). Tidak bergantung pada library luar.
-│   ├── repository/    # Layer untuk akses ke database (GORM). Mengimplementasikan interface.
-│   ├── usecase/       # Business Logic. Tempat aturan bisnis aplikasi berjalan.
-│   ├── handler/       # Controller (Gin). Menerima HTTP Request, validasi, dan memanggil Usecase.
-│   ├── middleware/    # Filter HTTP (Auth JWT, Role-based Access, CORS).
-├── config/            # Parsing file .env ke dalam struct Golang.
-└── scratch/           # Skrip pengujian sementara (bukan untuk production).
+│   ├── entity/              ← Domain models (pure structs, no framework deps)
+│   │   ├── user.go
+│   │   ├── patient.go
+│   │   ├── doctor.go
+│   │   ├── doctor_schedule.go
+│   │   ├── appointment.go
+│   │   ├── medical_record.go
+│   │   ├── prescription.go
+│   │   ├── rating.go              ⭐ NEW
+│   │   ├── checkin_token.go       ⭐ NEW
+│   │   └── symptom_screening.go   ⭐ NEW
+│   ├── dto/                 ← Request/Response shapes (separate from entities)
+│   ├── repository/          ← GORM queries implementing domain interfaces
+│   ├── usecase/             ← Pure business logic, calls repository interfaces
+│   ├── handler/             ← Gin controllers: parse HTTP, validate, call usecase
+│   ├── middleware/          ← JWT auth, RBAC role guard, CORS headers
+│   └── ws/                  ← WebSocket hub and client         ⭐ NEW
+├── pkg/
+│   └── response/            ← Standard JSON response helpers
+└── docker-compose.yml       ← Postgres + App container stack
+```
+
+### Layer Dependency Rule
+
+```
+Handler → Usecase → Repository → Database
+  ↑ (no cross-layer imports allowed in opposite direction)
 ```
 
 ---
 
-## 🔐 Role & Permissions (Hak Akses)
-Aplikasi memiliki 3 jenis peran utama:
-1.  **Admin:** Akses penuh ke semua data (Dashboard Admin, Kelola Pasien, Kelola Dokter, Kelola Jadwal, dan Semua Antrian).
-2.  **Doctor (Dokter):** Akses spesifik untuk menangani antrian hariannya dan melihat rekam medis pasien yang pernah ditanganinya.
-3.  **Patient (Pasien):** Akses personal untuk mendaftar antrian, melihat antrian pribadi, dan melihat riwayat medis pribadi.
+## 🗄️ Database Schema
 
----
+### ERD (Entity Relationship Diagram)
 
-## 📡 Detail API Endpoints (Berdasarkan Role)
+```mermaid
+erDiagram
+    users ||--o{ patients : "has"
+    users ||--o{ doctors : "has"
+    patients ||--o{ appointments : "books"
+    doctors ||--o{ appointments : "accepts"
+    doctors ||--o{ doctor_schedules : "creates"
+    doctor_schedules ||--o{ appointments : "scheduled_in"
+    appointments ||--o| medical_records : "generates"
+    medical_records ||--o{ prescriptions : "contains"
+    appointments ||--o| ratings : "rated_by"
+    appointments ||--o| checkin_tokens : "has"
+    appointments ||--o| symptom_screenings : "has"
 
-Seluruh respons dari API menggunakan format JSON standar berikut:
-```json
-{
-  "status": 200,
-  "message": "Success message",
-  "data": { ... },
-  "meta": { ... } // Opsional, untuk pagination
-}
+    users {
+        uuid id PK
+        string email
+        string password_hash
+        string role
+        string full_name
+        string nik
+        boolean is_active
+    }
+
+    patients {
+        uuid id PK
+        uuid user_id FK
+        date date_of_birth
+        string blood_type
+        string allergies
+    }
+
+    doctors {
+        uuid id PK
+        uuid user_id FK
+        string specialization
+        string sip_number
+    }
+
+    doctor_schedules {
+        uuid id PK
+        uuid doctor_id FK
+        int day_of_week
+        time start_time
+        time end_time
+        int max_patient
+        boolean is_active
+    }
+
+    appointments {
+        uuid id PK
+        uuid patient_id FK
+        uuid doctor_id FK
+        uuid schedule_id FK
+        date appointment_date
+        int queue_number
+        string status
+        string cancel_reason
+        datetime checked_in_at
+        datetime completed_at
+    }
+
+    medical_records {
+        uuid id PK
+        uuid appointment_id FK
+        uuid patient_id FK
+        uuid doctor_id FK
+        string complaint
+        string diagnosis
+        string icd_code
+        string action_taken
+        string doctor_notes
+    }
+
+    prescriptions {
+        uuid id PK
+        uuid medical_record_id FK
+        string medicine_name
+        string dosage
+        int quantity
+        string usage_instruction
+        string notes
+    }
+
+    ratings {
+        uuid id PK
+        uuid appointment_id FK
+        uuid patient_id FK
+        uuid doctor_id FK
+        int score
+        string comment
+    }
+
+    checkin_tokens {
+        uuid id PK
+        uuid appointment_id FK
+        string token
+        datetime expires_at
+        datetime used_at
+    }
+
+    symptom_screenings {
+        uuid id PK
+        uuid appointment_id FK
+        uuid patient_id FK
+        string symptoms
+        string severity
+        string duration
+        string temperature
+        string ai_summary
+    }
 ```
 
 ---
 
-### 🟢 1. Public API (Tidak Butuh Token)
+### ERD Visual Overview
 
-#### `POST /api/v1/auth/register`
-Mendaftarkan pasien baru.
-*   **Request Body:**
-    ```json
-    {
-      "email": "pasien@mail.com",
-      "password": "password123",
-      "full_name": "Budi Santoso",
-      "nik": "3201234567890001",
-      "date_of_birth": "1990-01-01",
-      "gender": "male",
-      "address": "Jl. Merdeka No.1"
-    }
-    ```
-*   **Response:** Mengembalikan objek user.
-
-#### `POST /api/v1/auth/login`
-Login untuk mendapatkan akses.
-*   **Request Body:**
-    ```json
-    {
-      "email": "pasien@mail.com",
-      "password": "password123"
-    }
-    ```
-*   **Response:** Mengembalikan `{"token": "ey..."}`.
-
----
-
-### 🔵 2. Role: Patient (Pasien)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
-
-#### `POST /api/v1/appointments`
-Mendaftar antrian baru.
-*   **Request Body:**
-    ```json
-    {
-      "doctor_id": "uuid-dokter",
-      "schedule_id": "uuid-jadwal",
-      "appointment_date": "2026-04-27"
-    }
-    ```
-*   **Response:** Objek antrian beserta `queue_number`.
-
-#### `GET /api/v1/appointments/my`
-Melihat seluruh riwayat antrian pasien.
-*   **Query Params:** `?page=1&per_page=10`
-
-#### `GET /api/v1/medical-records/my`
-Melihat seluruh rekam medis dan resep obat yang diterima pasien.
-
-#### `GET /api/v1/dashboard/patient`
-Mendapatkan statistik dasbor (Jumlah antrian hari ini, antrian menunggu, rekam medis).
-
-#### `PUT /api/v1/auth/profile`
-Memperbarui data profil pasien.
-
----
-
-### 🩺 3. Role: Doctor (Dokter)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
-
-#### `GET /api/v1/appointments/today`
-Melihat daftar antrian pasien untuk dokter tersebut hari ini atau tanggal tertentu.
-*   **Query Params:** `?date=2026-04-27` (Opsional)
-
-#### `PATCH /api/v1/appointments/:id/status`
-Memperbarui status antrian (contoh: memanggil pasien masuk atau menyelesaikan konsultasi).
-*   **Request Body:**
-    ```json
-    {
-      "status": "in_progress" // "in_progress", "completed", atau "waiting"
-    }
-    ```
-
-#### `POST /api/v1/medical-records`
-Mengisi diagnosa rekam medis dan meresepkan obat.
-*   **Request Body:**
-    ```json
-    {
-      "appointment_id": "uuid-antrian",
-      "patient_id": "uuid-pasien",
-      "complaint": "Pusing 3 hari",
-      "diagnosis": "Flu",
-      "doctor_notes": "Istirahat cukup",
-      "icd_code": "J00",
-      "prescriptions": [
-        {
-          "medicine_name": "Paracetamol",
-          "dosage": "500mg",
-          "quantity": 10,
-          "usage_instruction": "3x sehari"
-        }
-      ]
-    }
-    ```
-
-#### `GET /api/v1/dashboard/doctor`
-Mendapatkan statistik dokter (jumlah pasien hari ini, pasien menunggu).
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                    USERS                                            │
+│  id (PK) | email | password_hash | role | full_name | nik | is_active              │
+└───────────────┬─────────────────────────────────────────────────────────────────────┘
+                │
+        ┌───────┴───────┐
+        ▼               ▼
+┌───────────────┐ ┌───────────────┐
+│   PATIENTS    │ │    DOCTORS    │
+│ id (PK)       │ │ id (PK)       │
+│ user_id (FK)  │ │ user_id (FK)  │
+│ date_of_birth │ │ specialization│
+│ blood_type    │ │ sip_number    │
+│ allergies     │ └───────┬───────┘
+└───────┬───────┘         │
+        │                 │
+        │         ┌───────┴───────┐
+        │         │DOCTOR_SCHEDULES│
+        │         │ id (PK)        │
+        │         │ doctor_id (FK) │
+        │         │ day_of_week    │
+        │         │ start_time     │
+        │         │ end_time       │
+        │         │ max_patient    │
+        │         │ is_active      │
+        │         └───────┬───────┘
+        │                 │
+        └────────┬────────┘
+                 ▼
+        ┌────────────────────────────────────────────────────────────────┐
+        │                      APPOINTMENTS                              │
+        │  id (PK) | patient_id (FK) | doctor_id (FK) | schedule_id (FK) │
+        │  appointment_date | queue_number | status | cancel_reason      │
+        │  checked_in_at | completed_at                                    │
+        └───────────────────────────┬────────────────────────────────────┘
+                                    │
+            ┌───────────────────────┼───────────────────────┐
+            ▼                       ▼                       ▼
+┌───────────────────┐   ┌───────────────────┐   ┌───────────────────┐
+│  MEDICAL_RECORDS  │   │     RATINGS       │   │  CHECKIN_TOKENS   │
+│ id (PK)           │   │ id (PK)           │   │ id (PK)           │
+│ appointment_id(FK)│   │ appointment_id(FK)│   │ appointment_id(FK)│
+│ patient_id (FK)   │   │ patient_id (FK)   │   │ token             │
+│ doctor_id (FK)    │   │ doctor_id (FK)    │   │ expires_at        │
+│ complaint         │   │ score (1-5)       │   │ used_at           │
+│ diagnosis         │   │ comment           │   └───────────────────┘
+│ icd_code          │   └───────────────────┘
+│ action_taken      │   ┌───────────────────┐
+│ doctor_notes      │   │SYMPTOM_SCREENINGS │
+└─────────┬─────────┘   │ id (PK)           │
+          │             │ appointment_id(FK)│
+          ▼             │ patient_id (FK)   │
+┌───────────────────┐   │ symptoms          │
+│  PRESCRIPTIONS    │   │ severity          │
+│ id (PK)           │   │ duration          │
+│ medical_record_id │   │ temperature       │
+│ medicine_name     │   │ ai_summary        │
+│ dosage            │   └───────────────────┘
+│ quantity          │
+│ usage_instruction │
+│ notes             │
+└───────────────────┘
+```
 
 ---
 
-### 🔴 4. Role: Admin
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
+### Table Definitions
 
-#### `GET /api/v1/dashboard/admin`
-Statistik penuh untuk klinik (Total pasien, total dokter, total jadwal).
-
-#### `POST /api/v1/doctors` & `PUT /api/v1/doctors/:id` & `DELETE /api/v1/doctors/:id`
-Manajemen master data dokter.
-
-#### `POST /api/v1/schedules` & `PUT /api/v1/schedules/:id` & `DELETE /api/v1/schedules/:id`
-Manajemen jadwal praktek dokter (hari, jam, kuota maksimal).
-
-#### `GET /api/v1/appointments`
-Melihat **seluruh** antrian klinik dari seluruh dokter.
-
----
-
-### 🟡 5. Shared Roles (Hak Akses Gabungan)
-_Header yang dibutuhkan: `Authorization: Bearer <token>`_
-
-#### `GET /api/v1/patients` & `GET /api/v1/patients/:id` (Admin & Doctor)
-Melihat data direktori pasien. Dokter membutuhkan ini untuk melihat riwayat pasien.
-
-#### `GET /api/v1/medical-records/patient/:id` (Admin & Doctor)
-Melihat riwayat rekam medis dari pasien tertentu.
-
-#### `PATCH /api/v1/schedules/:id/toggle` (Admin & Doctor)
-Mengaktifkan atau menonaktifkan jadwal praktek tertentu secara cepat.
-
-#### `PATCH /api/v1/appointments/:id/cancel` (Semua Role Login)
-Membatalkan antrian. Pasien bisa membatalkan antriannya sendiri, Admin bisa membatalkan antrian siapapun.
-
-#### `GET /api/v1/doctors` & `GET /api/v1/schedules` (Semua Role Login)
-Membaca daftar dokter dan jadwal yang aktif (biasanya digunakan pasien untuk mendaftar).
+| Table | Key Columns |
+|-------|-------------|
+| `users` | `id UUID PK`, `email`, `password_hash`, `role` (admin/doctor/patient), `full_name`, `nik`, `is_active` |
+| `patients` | `id UUID PK`, `user_id FK`, `date_of_birth`, `blood_type`, `allergies` |
+| `doctors` | `id UUID PK`, `user_id FK`, `specialization`, `sip_number` |
+| `doctor_schedules` | `id UUID PK`, `doctor_id FK`, `day_of_week` (0–6), `start_time`, `end_time`, `max_patient`, `is_active` |
+| `appointments` | `id UUID PK`, `patient_id FK`, `doctor_id FK`, `schedule_id FK`, `appointment_date`, `queue_number`, `status`, `cancel_reason`, `checked_in_at`, `completed_at` |
+| `medical_records` | `id UUID PK`, `appointment_id FK`, `patient_id FK`, `doctor_id FK`, `complaint`, `diagnosis`, `icd_code`, `action_taken`, `doctor_notes` |
+| `prescriptions` | `id UUID PK`, `medical_record_id FK`, `medicine_name`, `dosage`, `quantity`, `usage_instruction`, `notes` |
+| `ratings` | `id UUID PK`, `appointment_id FK`, `patient_id FK`, `doctor_id FK`, `score` (1-5), `comment` |
+| `checkin_tokens` | `id UUID PK`, `appointment_id FK`, `token`, `expires_at`, `used_at` |
+| `symptom_screenings` | `id UUID PK`, `appointment_id FK`, `patient_id FK`, `symptoms`, `severity`, `duration`, `temperature`, `ai_summary` |
 
 ---
 
-## 🛠 Cara Menjalankan Server Lokal
+### Appointment Status Flow
 
-1.  Pastikan PostgreSQL sudah menyala dan database `mediqueue` sudah terbuat.
-2.  Sesuaikan file `.env`:
-    ```env
-    PORT=8080
-    DB_HOST=localhost
-    DB_USER=postgres
-    DB_PASSWORD=password_anda
-    DB_NAME=mediqueue
-    DB_PORT=5432
-    JWT_SECRET=supersecretkey
-    ```
-3.  Buka terminal di folder `backend/`.
-4.  Jalankan perintah:
-    ```bash
-    go mod tidy
-    go run .\cmd\main.go
-    ```
-5.  Server akan berjalan di `http://localhost:8080`.
+```
+POST /appointments → [waiting]
+                          │
+PATCH status in_progress ─┤→ [in_progress]
+                          │
+PATCH status completed ───┤→ [completed]
+                          │
+PATCH /cancel ────────────┴→ [cancelled]
+```
+
+---
+
+## 📊 Data Flow Diagram (DFD)
+
+### Level 0 - Context Diagram
+
+```mermaid
+flowchart TB
+    subgraph External["External Entities"]
+        Patient[("👤 Patient")]
+        Doctor[("👨‍⚕️ Doctor")]
+        Admin[("🔧 Admin")]
+    end
+
+    subgraph System["MediQueue System"]
+        MediQueue[("🏥 MediQueue\nQueue Management\nSystem")]
+    end
+
+    Patient -->|"Register, Login,\nBook Appointment,\nView Queue"| MediQueue
+    MediQueue -->|"Queue Status,\nMedical Records,\nNotifications"| Patient
+
+    Doctor -->|"Login, View Queue,\nUpdate Status,\nCreate Records"| MediQueue
+    MediQueue -->|"Today's Queue,\nPatient Info"| Doctor
+
+    Admin -->|"Login, Manage Users,\nView Analytics"| MediQueue
+    MediQueue -->|"Dashboard Stats,\nReports"| Admin
+```
+
+---
+
+### Level 1 - Main Processes
+
+```mermaid
+flowchart TB
+    subgraph External["External Entities"]
+        Patient[("👤 Patient")]
+        Doctor[("👨‍⚕️ Doctor")]
+        Admin[("🔧 Admin")]
+    end
+
+    subgraph Processes["Main Processes"]
+        P1["1.0\nAuthentication\nManagement"]
+        P2["2.0\nAppointment\nManagement"]
+        P3["3.0\nQueue\nManagement"]
+        P4["4.0\nMedical Record\nManagement"]
+        P5["5.0\nAnalytics &\nReporting"]
+        P6["6.0\nReal-time\nNotifications"]
+    end
+
+    subgraph DataStore["Data Stores"]
+        D1[("D1 Users")]
+        D2[("D2 Appointments")]
+        D3[("D3 Medical Records")]
+        D4[("D4 Ratings")]
+        D5[("D5 Check-in Tokens")]
+    end
+
+    Patient -->|"Credentials"| P1
+    P1 -->|"Auth Token"| Patient
+    P1 <-->|"User Data"| D1
+
+    Patient -->|"Book/Cancel"| P2
+    Doctor -->|"Update Status"| P2
+    P2 <-->|"Appointment Data"| D2
+
+    Patient -->|"View Queue"| P3
+    Doctor -->|"Call Patient"| P3
+    P3 <-->|"Queue Status"| D2
+
+    Doctor -->|"Create Record"| P4
+    Patient -->|"View Records"| P4
+    P4 <-->|"Medical Data"| D3
+
+    Admin -->|"Request Stats"| P5
+    P5 <-->|"Aggregate Data"| D1
+    P5 <-->|"Aggregate Data"| D2
+    P5 <-->|"Aggregate Data"| D4
+
+    P3 -->|"Queue Updates"| P6
+    P6 -->|"WebSocket Events"| Patient
+    P6 -->|"WebSocket Events"| Doctor
+```
+
+---
+
+### Level 2 - Appointment Management Detail
+
+```mermaid
+flowchart TB
+    subgraph Input["Input"]
+        Patient[("👤 Patient")]
+        Doctor[("👨‍⚕️ Doctor")]
+    end
+
+    subgraph P2["2.0 Appointment Management"]
+        P2_1["2.1\nValidate\nSchedule"]
+        P2_2["2.2\nGenerate\nQueue Number"]
+        P2_3["2.3\nCreate\nAppointment"]
+        P2_4["2.4\nUpdate\nStatus"]
+        P2_5["2.5\nCancel\nAppointment"]
+        P2_6["2.6\nReschedule\nAppointment"]
+    end
+
+    subgraph DataStore["Data Stores"]
+        D_Schedule[("D_Schedules")]
+        D_Appt[("D_Appointments")]
+        D_Token[("D_Checkin_Tokens")]
+    end
+
+    Patient -->|"Select Date/Time"| P2_1
+    P2_1 <-->|"Check Availability"| D_Schedule
+
+    P2_1 -->|"Schedule Valid"| P2_2
+    P2_2 <-->|"Get Next Number"| D_Appt
+
+    P2_2 -->|"Queue #"| P2_3
+    P2_3 -->|"Save"| D_Appt
+
+    Doctor -->|"Update Status"| P2_4
+    P2_4 -->|"Update"| D_Appt
+
+    Patient -->|"Cancel Request"| P2_5
+    P2_5 -->|"Update Status"| D_Appt
+
+    Patient -->|"Reschedule Request"| P2_6
+    P2_6 <-->|"Check New Slot"| D_Schedule
+    P2_6 -->|"Update"| D_Appt
+```
+
+---
+
+## 🔐 Role & Permissions
+
+The system has 3 roles. The JWT payload contains `role` and `user_id`.
+
+| Role | Access Level |
+|------|--------------|
+| `admin` | Full CRUD on doctors, schedules, users; view all appointments; analytics dashboard |
+| `doctor` | View own appointments; update status; create medical records; view patient history |
+| `patient` | Register, book appointments, view own queue, view own medical records, rate doctors |
+
+---
+
+## 🌐 API Endpoints
+
+### 🔓 Public Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/register` | Register new patient |
+| `POST` | `/auth/login` | Login → JWT |
+| `PATCH` | `/check-in/:token` | QR check-in (public) |
+
+---
+
+### 👤 Patient Endpoints
+
+> Header: `Authorization: Bearer <token>`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/auth/me` | Current user profile |
+| `POST` | `/appointments` | Book new appointment |
+| `GET` | `/appointments/my` | My appointments list |
+| `GET` | `/appointments/:id` | Appointment detail |
+| `GET` | `/appointments/:id/qr` | Get QR code for check-in |
+| `PATCH` | `/appointments/:id/cancel` | Cancel own appointment |
+| `PATCH` | `/appointments/:id/reschedule` | Reschedule appointment |
+| `GET` | `/medical-records/my` | My full medical records + prescriptions |
+| `GET` | `/medical-records/:id/pdf` | Download medical record PDF |
+| `POST` | `/ratings` | Rate a completed appointment |
+| `POST` | `/symptom-screenings` | Submit symptom screening |
+| `PUT` | `/auth/profile` | Update own profile |
+| `GET` | `/doctors` | List available doctors |
+| `GET` | `/schedules` | List active schedules |
+
+---
+
+### 🩺 Doctor Endpoints
+
+> Header: `Authorization: Bearer <token>`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard/doctor` | Stats: today patients, waiting |
+| `GET` | `/appointments/today?date=YYYY-MM-DD` | Today's queue list |
+| `PATCH` | `/appointments/:id/status` | Update queue status |
+| `POST` | `/medical-records` | Create diagnosis + prescriptions |
+| `GET` | `/medical-records` | All records created by this doctor |
+| `GET` | `/patients` | Patient directory |
+| `GET` | `/patients/:id` | Single patient profile |
+| `GET` | `/medical-records/patient/:id` | Patient's medical history |
+| `GET` | `/ratings/doctor/:id` | Get doctor's ratings |
+| `GET` | `/ratings/doctor/:id/summary` | Rating summary |
+| `PATCH` | `/schedules/:id/toggle` | Toggle schedule active status |
+
+---
+
+### 🔴 Admin Endpoints
+
+> Header: `Authorization: Bearer <token>`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard/admin` | Full clinic stats |
+| `GET` | `/analytics?days=30` | Analytics data for charts |
+| `GET` | `/appointments` | All appointments (filterable by date) |
+| `GET` | `/export/appointments?format=pdf` | Export appointments to PDF |
+| `POST` | `/doctors` | Create doctor account |
+| `PUT` | `/doctors/:id` | Update doctor |
+| `DELETE` | `/doctors/:id` | Delete doctor |
+| `POST` | `/schedules` | Create practice schedule |
+| `PUT` | `/schedules/:id` | Update schedule |
+| `DELETE` | `/schedules/:id` | Delete schedule |
+| `GET` | `/users` | All user accounts |
+| `PATCH` | `/users/:id/toggle` | Activate/deactivate user |
+
+---
+
+### 🔌 WebSocket Endpoint
+
+| Path | Description |
+|------|-------------|
+| `WS /ws` | Real-time queue updates |
+
+**Broadcast Events:**
+- `queue_update` - Appointment status changed
+- `new_appointment` - New appointment booked
+- `checked_in` - Patient checked in via QR
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `PORT` | ✅ | HTTP server port | `8080` |
+| `DB_HOST` | ✅ | PostgreSQL hostname | `localhost` |
+| `DB_PORT` | ✅ | PostgreSQL port | `5432` |
+| `DB_USER` | ✅ | Database username | `mediqueue` |
+| `DB_PASSWORD` | ✅ | Database password | `secret` |
+| `DB_NAME` | ✅ | Database name | `mediqueue` |
+| `JWT_SECRET` | ✅ | JWT signing key | `your-secret-key` |
+| `JWT_EXPIRY_HOURS` | ⬜ | Token expiry | `24` |
+| `APP_ENV` | ⬜ | Environment | `development` |
+
+---
+
+## 🚀 Running the Application
+
+### Using Go directly
+
+```bash
+# Install dependencies
+go mod tidy
+
+# Run the server
+go run ./cmd/main.go
+```
+
+### Using Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+Server starts at `http://localhost:8080`
+
+---
+
+## 📋 Features Implemented
+
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | Real-time WebSocket Queue | ✅ |
+| 2 | QR Code Patient Check-in | ✅ |
+| 3 | Doctor Rating System | ✅ |
+| 4 | Analytics Dashboard API | ✅ |
+| 5 | PDF Export (Appointments & Medical Records) | ✅ |
+| 6 | Symptom Pre-screening | ✅ |
+| 7 | Appointment Reschedule | ✅ |
+| 8 | Search & Filter | ✅ |
+
+---
+
+## 📝 License
+
+MIT License - MediQueue 2026
