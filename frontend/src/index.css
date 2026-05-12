@@ -421,6 +421,7 @@
 /* Page transition */
 .page-enter {
   animation: fadeSlideUp 0.38s ease forwards;
+  @apply h-full;
 }
 
 /* Sidebar transition */
