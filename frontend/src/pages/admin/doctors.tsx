@@ -32,7 +32,7 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
       const e = err as { response?: { data?: { message?: string } } }
       const msg = e?.response?.data?.message || 'Gagal menyimpan'
       setError(msg)
-      toast.error('Gagal menambahkan dokter', msg)
+      toast.error(msg || 'Gagal menambahkan dokter')
     },
   })
 
@@ -44,7 +44,7 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
       const e = err as { response?: { data?: { message?: string } } }
       const msg = e?.response?.data?.message || 'Gagal menyimpan'
       setError(msg)
-      toast.error('Gagal menambahkan dokter', msg)
+      toast.error(msg || 'Gagal memperbarui dokter')
     },
   })
 
@@ -77,7 +77,7 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Password *</label>
-                <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={8} />
+                <Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={8} placeholder="Minimal 8 karakter" />
               </div>
             </>
           )}

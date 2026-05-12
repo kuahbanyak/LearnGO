@@ -18,7 +18,7 @@ type UserResponse struct {
 	Role      string    `json:"role"`
 	FullName  string    `json:"full_name"`
 	Phone     string    `json:"phone"`
-	NIK       string    `json:"nik"`
+	NIK       *string   `json:"nik"`
 	Gender    string    `json:"gender"`
 	Address   string    `json:"address"`
 	BloodType string    `json:"blood_type"`

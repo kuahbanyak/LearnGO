@@ -26,8 +26,37 @@ go.work.sum
 
 # env file
 .env
+.env.local
+.env.production
+.env.*.local
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Logs
+backend/logs/
+*.log
+
+# SSL certificates
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+
+# Backup files
+*.sql
+*.sql.gz
+backup*.sql
+*.bak
 
 # Editor/IDE
 .idea
 .vscode/
 node_modules/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

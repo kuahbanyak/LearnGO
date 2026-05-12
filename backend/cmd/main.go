@@ -27,7 +27,7 @@ func main() {
 	// Connect database
 	db := database.Connect(cfg)
 
-	// Run migrations
+	// Run schema migrations
 	database.Migrate(db)
 
 	// Run seeder

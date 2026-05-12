@@ -15,10 +15,14 @@ export default defineConfig({
     },
   },
    server: {
+    host: '0.0.0.0', // Allow external connections for Docker
     port: 5173,
+    watch: {
+      usePolling: true, // Required for Docker volume mounts on Windows
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://backend:8080', // Use Docker service name
         changeOrigin: true,
       },
     },

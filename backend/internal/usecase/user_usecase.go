@@ -80,7 +80,9 @@ func (u *userUsecase) Update(id uuid.UUID, req *dto.UpdateUserRequest) (*dto.Use
 
 	user.FullName = req.FullName
 	user.Phone = req.Phone
-	user.NIK = req.NIK
+	if req.NIK != "" {
+		user.NIK = &req.NIK
+	}
 	if req.Gender != "" {
 		user.Gender = req.Gender
 	}

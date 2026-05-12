@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediqueue_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-mediqueue}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      TZ: Asia/Jakarta
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mediqueue_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mediqueue}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Backend API Service
+  backend:
+    image: ${DOCKER_USERNAME}/mediqueue:backend
+    container_name: mediqueue_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_PORT: 8080
+      APP_ENV: production
+      TZ: Asia/Jakarta
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-mediqueue}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@mediqueue.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_NAME: ${ADMIN_NAME:-Super Admin}
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - mediqueue_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Service
+  frontend:
+    image: ${DOCKER_USERNAME}/mediqueue:frontend
+    container_name: mediqueue_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - mediqueue_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Cloudflare Tunnel (Alternative to cloudflared service)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: mediqueue_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - mediqueue_network
+    depends_on:
+      - frontend
+
+networks:
+  mediqueue_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local

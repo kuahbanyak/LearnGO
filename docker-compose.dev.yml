@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediqueue_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-Clinic}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-12}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      TZ: Asia/Jakarta
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./backend/scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - mediqueue_network_dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-Clinic}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Backend API Service (Development with Air hot-reload)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: mediqueue_api_dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Application
+      APP_PORT: ${APP_PORT:-8080}
+      APP_ENV: development
+      TZ: Asia/Jakarta
+      
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-12}
+      DB_NAME: ${DB_NAME:-Clinic}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-mediqueue-dev-secret-key-2024}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      
+      # Admin Seeder
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@mediqueue.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
+      ADMIN_NAME: ${ADMIN_NAME:-Super Admin}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - ./backend:/app
+      - /app/tmp
+      - ./backend/logs:/app/logs
+    networks:
+      - mediqueue_network_dev
+
+  # Frontend Service (Development with Vite dev server)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: mediqueue_frontend_dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8080
+      - TZ=Asia/Jakarta
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - mediqueue_network_dev
+
+networks:
+  mediqueue_network_dev:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:
+    driver: local

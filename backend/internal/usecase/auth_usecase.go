@@ -41,6 +41,10 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 	}
 
 	userID := uuid.New()
+	var nikPtr *string
+	if req.NIK != "" {
+		nikPtr = &req.NIK
+	}
 	user := &entity.User{
 		ID:           userID,
 		Email:        req.Email,
@@ -48,7 +52,7 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		Role:         entity.RolePatient,
 		FullName:     req.FullName,
 		Phone:        req.Phone,
-		NIK:          req.NIK,
+		NIK:          nikPtr,
 		Gender:       req.Gender,
 		Address:      req.Address,
 		BloodType:    req.BloodType,
@@ -108,7 +112,7 @@ func (u *authUsecase) UpdateProfile(userID uuid.UUID, req *dto.UpdateProfileRequ
 		user.Phone = req.Phone
 	}
 	if req.NIK != "" {
-		user.NIK = req.NIK
+		user.NIK = &req.NIK
 	}
 	if req.Gender != "" {
 		user.Gender = req.Gender
