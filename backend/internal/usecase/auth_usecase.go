@@ -9,6 +9,7 @@ import (
 	"mediqueue/pkg/utils"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type AuthUsecase interface {
@@ -22,14 +23,19 @@ type AuthUsecase interface {
 type authUsecase struct {
 	userRepo    repository.UserRepository
 	patientRepo repository.PatientRepository
+	db          *gorm.DB
 }
 
-func NewAuthUsecase(userRepo repository.UserRepository, patientRepo repository.PatientRepository) AuthUsecase {
-	return &authUsecase{userRepo: userRepo, patientRepo: patientRepo}
+func NewAuthUsecase(userRepo repository.UserRepository, patientRepo repository.PatientRepository, db *gorm.DB) AuthUsecase {
+	return &authUsecase{
+		userRepo:    userRepo,
+		patientRepo: patientRepo,
+		db:          db,
+	}
 }
 
 func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
-	// Check email unique
+	// Check email unique (before transaction)
 	existing, _ := u.userRepo.FindByEmail(req.Email)
 	if existing != nil {
 		return nil, errors.New("email already registered")
@@ -45,6 +51,16 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 	if req.NIK != "" {
 		nikPtr = &req.NIK
 	}
+
+	// Start database transaction for atomic user + patient creation
+	tx := u.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Create user within transaction
 	user := &entity.User{
 		ID:           userID,
 		Email:        req.Email,
@@ -59,16 +75,26 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		IsActive:     true,
 	}
 
-	if err := u.userRepo.Create(user); err != nil {
+	if err := tx.Create(user).Error; err != nil {
+		tx.Rollback()
 		return nil, errors.New("failed to create user")
 	}
 
-	// Create patient profile automatically
+	// Create patient profile within transaction
 	patient := &entity.Patient{
 		ID:     uuid.New(),
 		UserID: userID,
 	}
-	_ = u.patientRepo.Create(patient)
+
+	if err := tx.Create(patient).Error; err != nil {
+		tx.Rollback()
+		return nil, errors.New("failed to create patient profile")
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return nil, errors.New("failed to complete registration")
+	}
 
 	return user, nil
 }

@@ -49,7 +49,7 @@ func main() {
 	symptomScreeningRepo := repository.NewSymptomScreeningRepository(db)
 
 	// Initialize use cases
-	authUC := usecase.NewAuthUsecase(userRepo, patientRepo)
+	authUC := usecase.NewAuthUsecase(userRepo, patientRepo, db)
 	patientUC := usecase.NewPatientUsecase(patientRepo)
 	doctorUC := usecase.NewDoctorUsecase(doctorRepo, userRepo)
 	scheduleUC := usecase.NewScheduleUsecase(scheduleRepo, doctorRepo)
@@ -181,6 +181,7 @@ func main() {
 	// ── Patient routes ──
 	patientOnly := protected.Group("/")
 	patientOnly.Use(middleware.RequireRole(entity.RolePatient))
+	patientOnly.Use(middleware.RequirePatientProfile(patientRepo))
 	{
 		patientOnly.POST("/appointments", appointmentH.Book)
 		patientOnly.GET("/appointments/my", appointmentH.GetMyAppointments)

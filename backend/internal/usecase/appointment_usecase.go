@@ -66,7 +66,19 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 	// Get patient profile
 	patient, err := u.patientRepo.FindByUserID(patientUserID)
 	if err != nil {
-		return nil, errors.New("patient profile not found")
+		// Auto-create patient profile if missing (fallback safety net)
+		patient = &entity.Patient{
+			ID:     uuid.New(),
+			UserID: patientUserID,
+		}
+		if createErr := u.patientRepo.Create(patient); createErr != nil {
+			return nil, errors.New("patient profile not found and could not be created")
+		}
+		// Reload patient with User relation
+		patient, err = u.patientRepo.FindByUserID(patientUserID)
+		if err != nil {
+			return nil, errors.New("patient profile not found")
+		}
 	}
 
 	// Validate complete user profile
@@ -132,7 +144,14 @@ func (u *appointmentUsecase) GetAll(limit, offset int, status, date string) ([]e
 func (u *appointmentUsecase) GetByPatient(patientUserID uuid.UUID, limit, offset int) ([]entity.Appointment, int64, error) {
 	patient, err := u.patientRepo.FindByUserID(patientUserID)
 	if err != nil {
-		return nil, 0, errors.New("patient not found")
+		// Auto-create patient profile if missing
+		patient = &entity.Patient{
+			ID:     uuid.New(),
+			UserID: patientUserID,
+		}
+		if createErr := u.patientRepo.Create(patient); createErr != nil {
+			return nil, 0, errors.New("patient not found and could not be created")
+		}
 	}
 	return u.appointmentRepo.FindByPatientID(patient.ID, limit, offset)
 }
@@ -207,8 +226,18 @@ func (u *appointmentUsecase) Cancel(id uuid.UUID, actorRole string, actorUserID 
 
 	// Patient can only cancel their own
 	if actorRole == string(entity.RolePatient) {
-		patient, _ := u.patientRepo.FindByUserID(actorUserID)
-		if patient == nil || app.PatientID != patient.ID {
+		patient, err := u.patientRepo.FindByUserID(actorUserID)
+		if err != nil {
+			// Auto-create patient profile if missing
+			patient = &entity.Patient{
+				ID:     uuid.New(),
+				UserID: actorUserID,
+			}
+			if createErr := u.patientRepo.Create(patient); createErr != nil {
+				return errors.New("patient not found and could not be created")
+			}
+		}
+		if app.PatientID != patient.ID {
 			return errors.New("you don't have permission to cancel this appointment")
 		}
 	}
