@@ -26,6 +26,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Validate password complexity
+	if err := req.Validate(); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
 	user, err := h.authUsecase.Register(&req)
 	if err != nil {
 		response.BadRequest(c, err.Error())

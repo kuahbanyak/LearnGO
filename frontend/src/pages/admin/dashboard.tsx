@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { Users, UserCog, Calendar, Clock, CheckCircle, Loader2, ArrowRight, TrendingUp, Activity } from 'lucide-react'
+import { Users, UserCog, Calendar, Clock, CheckCircle, ArrowRight, TrendingUp, Activity } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { DashboardStats } from '@/types'
-import { formatDate } from '@/lib/utils'
 import { Link } from 'react-router-dom'
 
 interface StatCardProps {

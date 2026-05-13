@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CheckInTokenRepository interface {
@@ -25,7 +26,10 @@ func NewCheckInTokenRepository(db *gorm.DB) CheckInTokenRepository {
 }
 
 func (r *checkInTokenRepository) Create(token *entity.CheckInToken) error {
-	return r.db.Create(token).Error
+	return r.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "appointment_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"token", "expires_at", "used_at"}),
+	}).Create(token).Error
 }
 
 func (r *checkInTokenRepository) FindByToken(token string) (*entity.CheckInToken, error) {

@@ -34,12 +34,10 @@ func (h *CheckInHandler) GetQRCode(c *gin.Context) {
 	// Generate QR token
 	_, tokenString, err := h.checkInUsecase.GenerateQRToken(appointmentID)
 	if err != nil {
+		log.Printf("[CheckIn] Failed to generate QR token for appointment %s: %v", appointmentID, err)
 		response.BadRequest(c, err.Error())
 		return
 	}
-
-	// Note: Ownership validation is handled in the usecase
-	// The token is generated only if the appointment exists and is valid
 
 	// Generate QR code PNG
 	checkInURL := "https://mediqueue.app/check-in/" + tokenString

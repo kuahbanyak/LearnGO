@@ -66,12 +66,11 @@ export default function BookAppointmentPage() {
   }
 
   useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => {
-        navigate('/patient/dashboard')
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
+    if (!success) return
+    const timer = setTimeout(() => {
+      navigate('/patient/dashboard')
+    }, 2000)
+    return () => clearTimeout(timer)
   }, [success, navigate])
 
   const handleBook = () => {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { QrCode, CheckCircle, Clock, User, Stethoscope, AlertCircle } from 'lucide-react'
 import { checkInApi } from '@/api/checkin'
 import { toast } from '@/hooks/use-toast'
@@ -20,9 +20,11 @@ export default function CheckInPage() {
     mutationFn: () => checkInApi.checkIn(token),
     onSuccess: (response) => {
       const data = response.data.data
-      setCheckedIn(true)
-      setAppointmentData(data)
-      toast.success('Check-in Berhasil!', `Nomor antrian Anda: ${data.queue_number}`)
+      if (data) {
+        setCheckedIn(true)
+        setAppointmentData(data)
+        toast.success('Check-in Berhasil!', `Nomor antrian Anda: ${data.queue_number}`)
+      }
     },
     onError: (error: any) => {
       toast.error('Check-in Gagal', error.response?.data?.message || 'Token tidak valid')

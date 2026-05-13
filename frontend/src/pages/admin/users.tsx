@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Users as UsersIcon, Loader2, Edit, Trash2, Shield } from 'lucide-react'
+import { Users as UsersIcon, Loader2, Edit, Trash2, Shield } from 'lucide-react'
 import { userApi } from '@/api/users'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'

@@ -4,7 +4,7 @@ import { Stethoscope, AlertTriangle, Thermometer, Clock, Send, Loader2 } from 'l
 import { symptomScreeningApi } from '@/api/symptom-screening'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 
 const COMMON_SYMPTOMS = [
   'Demam',

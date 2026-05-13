@@ -1,5 +1,5 @@
 import client from './client'
-import type { User, ApiResponse, PaginatedResponse } from '@/types'
+import type { User, ApiResponse } from '@/types'
 
 export const userApi = {
   getAll: (params?: { limit?: number; offset?: number }) => {
