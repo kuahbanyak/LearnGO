@@ -58,7 +58,7 @@ export default function RegisterPage() {
         <div className="relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full">
           {/* Top */}
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+            <div className="w-11 h-11 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
               <Heart className="size-5 text-white" />
             </div>
             <div>
@@ -108,7 +108,7 @@ export default function RegisterPage() {
       </div>
 
       {/* Right Panel - Register Form */}
-      <div className="w-full lg:w-[45%] flex items-center justify-center p-6 sm:p-8 bg-gradient-to-br from-slate-50 to-white relative">
+      <div className="w-full lg:w-[45%] flex items-center justify-center p-6 sm:p-8 bg-linear-to-br">
         <div className="lg:hidden absolute top-0 left-0 right-0 h-1 gradient-primary" />
 
         <div className="w-full max-w-[420px] space-y-8">

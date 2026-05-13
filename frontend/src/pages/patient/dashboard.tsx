@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Clock, Loader2, X, ArrowRight, Activity, CheckCircle, Stethoscope, AlertTriangle } from 'lucide-react'
+import { Calendar, Clock, Loader2, ArrowRight, Activity, CheckCircle, Stethoscope, AlertTriangle } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

@@ -46,7 +46,7 @@ func seedAdmin(db *gorm.DB, cfg *config.Config) {
 		return
 	}
 
-	log.Printf("Admin seeded: %s / %s", cfg.AdminEmail, cfg.AdminPassword)
+	log.Printf("Admin seeded: %s", cfg.AdminEmail)
 }
 
 func seedDemoDoctor(db *gorm.DB) {

@@ -23,7 +23,7 @@ const (
 type Patient struct {
 	ID          uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	UserID      uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex" json:"user_id"`
-	NIK         string         `gorm:"uniqueIndex;type:varchar(16)" json:"nik"`
+	NIK         *string        `gorm:"uniqueIndex;type:varchar(16)" json:"nik"`
 	DateOfBirth *time.Time     `json:"date_of_birth"`
 	Gender      Gender         `gorm:"type:varchar(10)" json:"gender"`
 	Address     string         `gorm:"type:text" json:"address"`

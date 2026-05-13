@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Loader2, X, Eye, AlertTriangle, Clock, Timer, QrCode } from 'lucide-react'
+import { ClipboardList, Loader2, Eye, AlertTriangle, Clock, Timer, QrCode, Download, Share2, X } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -164,6 +164,108 @@ function RatingModal({ appointment, onClose, onSuccess }: { appointment: Appoint
           </Button>
           <Button className="flex-1 gradient-primary text-white border-0" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : 'Kirim Rating'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function QRModal({ appointment, qrImage, onClose }: { appointment: Appointment; qrImage: string; onClose: () => void }) {
+  const handleDownload = () => {
+    const link = document.createElement('a')
+    link.href = qrImage
+    link.download = `qr-antrian-${appointment.queue_number}.png`
+    link.click()
+  }
+
+  const handleShare = async () => {
+    try {
+      const response = await fetch(qrImage)
+      const blob = await response.blob()
+      const file = new File([blob], `qr-antrian-${appointment.queue_number}.png`, { type: 'image/png' })
+      
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: `QR Check-in Antrian #${appointment.queue_number}`,
+          text: `QR Code untuk check-in antrian #${appointment.queue_number} di klinik`,
+          files: [file]
+        })
+      } else {
+        await navigator.clipboard.writeText(qrImage)
+        toast.success('Link disalin', 'Link QR code telah disalin ke clipboard')
+      }
+    } catch {
+      toast.error('Gagal membagikan', 'Tidak dapat membagikan QR code')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 modal-overlay" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm modal-content overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+        <div className="relative">
+          <button 
+            onClick={onClose} 
+            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/90 hover:bg-white shadow-lg text-slate-500 hover:text-slate-700 transition-all"
+          >
+            <X className="size-5" />
+          </button>
+          
+          <div className="gradient-primary px-6 pt-8 pb-12 text-center">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm mb-3">
+              <QrCode className="size-7 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white">QR Check-in</h3>
+            <p className="text-blue-100 text-sm mt-1">Scan di resepsionis klinik</p>
+          </div>
+        </div>
+
+        <div className="px-6 -mt-6 relative">
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5">
+            <div className="bg-linear-to-br from-slate-50 to-slate-100 rounded-xl p-4 mb-4">
+              <img 
+                src={qrImage} 
+                alt="QR Code" 
+                className="w-full max-w-[200px] h-auto mx-auto"
+              />
+            </div>
+            
+            <div className="text-center">
+              <p className="text-xs text-slate-500 mb-1">Nomor Antrian</p>
+              <p className="text-3xl font-bold text-slate-900">#{appointment.queue_number}</p>
+              <p className="text-sm text-slate-500 mt-2">Dr. {appointment.doctor?.user?.full_name}</p>
+              <p className="text-xs text-slate-400">{appointment.doctor?.specialization}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-3">
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownload}
+              className="flex-1 gap-2 rounded-xl border-slate-200 text-slate-600 hover:text-primary hover:bg-blue-50 hover:border-blue-200"
+            >
+              <Download className="size-4" />
+              Unduh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="flex-1 gap-2 rounded-xl border-slate-200 text-slate-600 hover:text-primary hover:bg-blue-50 hover:border-blue-200"
+            >
+              <Share2 className="size-4" />
+              Bagikan
+            </Button>
+          </div>
+          
+          <Button
+            className="w-full rounded-xl gradient-primary text-white border-0"
+            onClick={onClose}
+          >
+            Tutup
           </Button>
         </div>
       </div>
@@ -428,33 +530,12 @@ export default function MyQueuePage() {
         />
       )}
 
-      {/* QR Code Modal */}
       {qrAppointment && qrImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 modal-overlay" onClick={() => { setQrAppointment(null); setQrImage(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm modal-content p-6 text-center" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
-              <QrCode className="size-8 text-white" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">QR Code Check-in</h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Scan QR ini di resepsionis klinik untuk konfirmasi kedatangan
-            </p>
-            <div className="bg-white p-4 rounded-xl border-2 border-slate-100 inline-block mb-4">
-              <img src={qrImage} alt="QR Code" className="w-48 h-48" />
-            </div>
-            <div className="bg-blue-50 rounded-lg p-3 mb-4">
-              <p className="text-xs text-blue-600 font-medium">Nomor Antrian</p>
-              <p className="text-2xl font-bold text-blue-900">{qrAppointment.queue_number}</p>
-            </div>
-            <Button
-              variant="outline"
-              className="w-full rounded-xl"
-              onClick={() => { setQrAppointment(null); setQrImage(null) }}
-            >
-              Tutup
-            </Button>
-          </div>
-        </div>
+        <QRModal
+          appointment={qrAppointment}
+          qrImage={qrImage}
+          onClose={() => { setQrAppointment(null); setQrImage(null) }}
+        />
       )}
     </div>
   )

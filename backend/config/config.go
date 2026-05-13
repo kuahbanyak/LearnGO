@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -48,6 +50,49 @@ func Load() *Config {
 		AdminPassword:  getEnv("ADMIN_PASSWORD", "Admin@123"),
 		AdminName:      getEnv("ADMIN_NAME", "Super Admin"),
 	}
+}
+
+// Validate checks if the configuration is valid for the current environment
+func (c *Config) Validate() error {
+	// Critical: JWT secret must not be default value
+	if c.JWTSecret == "" || c.JWTSecret == "default-secret" {
+		return errors.New("JWT_SECRET must be set and cannot be 'default-secret'")
+	}
+
+	// Production-specific validations
+	if c.AppEnv == "production" {
+		if c.DBPassword == "postgres" || c.DBPassword == "" {
+			return errors.New("production database password cannot be default or empty")
+		}
+		if len(c.JWTSecret) < 32 {
+			return errors.New("production JWT_SECRET must be at least 32 characters")
+		}
+	}
+
+	// Validate JWT expiry
+	if c.JWTExpiryHours < 1 || c.JWTExpiryHours > 168 {
+		return errors.New("JWT_EXPIRY_HOURS must be between 1 and 168 (1 week)")
+	}
+
+	return nil
+}
+
+// GetAllowedOrigins returns the list of allowed CORS origins
+func (c *Config) GetAllowedOrigins() []string {
+	if c.AppEnv == "production" {
+		originsEnv := os.Getenv("ALLOWED_ORIGINS")
+		if originsEnv == "" {
+			log.Fatal("ALLOWED_ORIGINS must be set in production")
+		}
+		origins := strings.Split(originsEnv, ",")
+		// Trim whitespace
+		for i, origin := range origins {
+			origins[i] = strings.TrimSpace(origin)
+		}
+		return origins
+	}
+	// Development defaults
+	return []string{"http://localhost:5173", "http://localhost:3000", "http://localhost:4173"}
 }
 
 func (c *Config) DSN() string {

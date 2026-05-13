@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/api/analytics'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, TrendingUp, TrendingDown, Users, Calendar, XCircle, BarChart3 } from 'lucide-react'
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Loader2, TrendingUp, TrendingDown, Users, Calendar, XCircle } from 'lucide-react'
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useState } from 'react'
 
-const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
+
 
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
@@ -17,6 +17,18 @@ export default function AnalyticsPage() {
 
   const analytics = data?.data?.data
 
+  const safeAnalytics = {
+    appointments_by_day: analytics?.appointments_by_day || [],
+    status_distribution: analytics?.status_distribution || { waiting: 0, in_progress: 0, completed: 0, cancelled: 0 },
+    appointments_by_doctor: analytics?.appointments_by_doctor || [],
+    peak_hours: analytics?.peak_hours || [],
+    cancellation_rate: analytics?.cancellation_rate || 0,
+    weekly_trends: analytics?.weekly_trends || [],
+    total_this_month: analytics?.total_this_month || 0,
+    total_last_month: analytics?.total_last_month || 0,
+    avg_per_day: analytics?.avg_per_day || 0,
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -25,24 +37,17 @@ export default function AnalyticsPage() {
     )
   }
 
-  if (!analytics) {
-    return (
-      <div className="text-center py-12 text-slate-500">
-        <BarChart3 className="size-12 mx-auto mb-3 opacity-20" />
-        <p>Tidak ada data analitik</p>
-      </div>
-    )
-  }
+
 
   const statusData = [
-    { name: 'Menunggu', value: analytics.status_distribution.waiting, color: '#f59e0b' },
-    { name: 'Ditangani', value: analytics.status_distribution.in_progress, color: '#0ea5e9' },
-    { name: 'Selesai', value: analytics.status_distribution.completed, color: '#10b981' },
-    { name: 'Dibatalkan', value: analytics.status_distribution.cancelled, color: '#ef4444' },
+    { name: 'Menunggu', value: safeAnalytics.status_distribution.waiting, color: '#f59e0b' },
+    { name: 'Ditangani', value: safeAnalytics.status_distribution.in_progress, color: '#0ea5e9' },
+    { name: 'Selesai', value: safeAnalytics.status_distribution.completed, color: '#10b981' },
+    { name: 'Dibatalkan', value: safeAnalytics.status_distribution.cancelled, color: '#ef4444' },
   ]
 
-  const monthChange = analytics.total_last_month > 0
-    ? ((analytics.total_this_month - analytics.total_last_month) / analytics.total_last_month) * 100
+  const monthChange = safeAnalytics.total_last_month > 0
+    ? ((safeAnalytics.total_this_month - safeAnalytics.total_last_month) / safeAnalytics.total_last_month) * 100
     : 0
 
   return (
@@ -69,26 +74,26 @@ export default function AnalyticsPage() {
         {[
           {
             label: 'Total Bulan Ini',
-            value: analytics.total_this_month,
+            value: safeAnalytics.total_this_month,
             icon: Calendar,
             gradient: 'gradient-primary',
             change: monthChange,
           },
           {
             label: 'Rata-rata per Hari',
-            value: analytics.avg_per_day.toFixed(1),
+            value: safeAnalytics.avg_per_day.toFixed(1),
             icon: TrendingUp,
             gradient: 'gradient-success',
           },
           {
             label: 'Tingkat Pembatalan',
-            value: `${(analytics.cancellation_rate * 100).toFixed(1)}%`,
+            value: `${(safeAnalytics.cancellation_rate * 100).toFixed(1)}%`,
             icon: XCircle,
             gradient: 'gradient-danger',
           },
           {
             label: 'Total Pasien',
-            value: analytics.appointments_by_day.reduce((sum, d) => sum + d.count, 0),
+            value: safeAnalytics.appointments_by_day.reduce((sum, d) => sum + d.count, 0),
             icon: Users,
             gradient: 'gradient-purple',
           },
@@ -126,7 +131,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={analytics.appointments_by_day}>
+              <LineChart data={safeAnalytics.appointments_by_day}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -153,7 +158,7 @@ export default function AnalyticsPage() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                   outerRadius={100}
                   fill="#8884d8"
                   dataKey="value"
@@ -178,7 +183,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={analytics.appointments_by_doctor}>
+              <BarChart data={safeAnalytics.appointments_by_doctor}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="doctor_name" tick={{ fontSize: 11 }} stroke="#94a3b8" angle={-15} textAnchor="end" height={80} />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -199,7 +204,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={analytics.peak_hours}>
+              <AreaChart data={safeAnalytics.peak_hours}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="hour" tick={{ fontSize: 12 }} stroke="#94a3b8" tickFormatter={(h) => `${h}:00`} />
                 <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
@@ -221,7 +226,7 @@ export default function AnalyticsPage() {
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={analytics.weekly_trends}>
+            <BarChart data={safeAnalytics.weekly_trends}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="week" tick={{ fontSize: 12 }} stroke="#94a3b8" />
               <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />

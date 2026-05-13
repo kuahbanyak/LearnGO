@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Outlet, useLocation, Link } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar, { MobileMenuButton } from './sidebar'
 import { useAuthStore } from '@/store/auth-store'
 import { useThemeStore } from '@/store/theme-store'

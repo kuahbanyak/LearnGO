@@ -3,6 +3,8 @@ package response
 import (
 	"net/http"
 
+	apperrors "mediqueue/pkg/errors"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,6 +53,27 @@ func Error(c *gin.Context, statusCode int, message string, errors interface{}) {
 	})
 }
 
+// ErrorFromAppError handles AppError types with error codes
+func ErrorFromAppError(c *gin.Context, statusCode int, err error) {
+	if appErr, ok := err.(*apperrors.AppError); ok {
+		c.JSON(statusCode, Response{
+			Success: false,
+			Message: appErr.Message,
+			Errors: map[string]interface{}{
+				"code":    appErr.Code,
+				"details": appErr.Details,
+			},
+		})
+		return
+	}
+
+	// Generic error
+	c.JSON(statusCode, Response{
+		Success: false,
+		Message: err.Error(),
+	})
+}
+
 func BadRequest(c *gin.Context, message string) {
 	Error(c, http.StatusBadRequest, message, nil)
 }
@@ -69,6 +92,10 @@ func NotFound(c *gin.Context, message string) {
 
 func InternalServerError(c *gin.Context, message string) {
 	Error(c, http.StatusInternalServerError, message, nil)
+}
+
+func TooManyRequests(c *gin.Context, message string) {
+	Error(c, http.StatusTooManyRequests, message, nil)
 }
 
 func Paginated(c *gin.Context, message string, data interface{}, meta *Meta) {

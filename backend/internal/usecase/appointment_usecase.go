@@ -9,6 +9,8 @@ import (
 	"mediqueue/internal/repository"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AppointmentUsecase interface {
@@ -27,6 +29,7 @@ type appointmentUsecase struct {
 	scheduleRepo    repository.ScheduleRepository
 	patientRepo     repository.PatientRepository
 	doctorRepo      repository.DoctorRepository
+	db              *gorm.DB
 }
 
 func NewAppointmentUsecase(
@@ -34,12 +37,14 @@ func NewAppointmentUsecase(
 	scheduleRepo repository.ScheduleRepository,
 	patientRepo repository.PatientRepository,
 	doctorRepo repository.DoctorRepository,
+	db *gorm.DB,
 ) AppointmentUsecase {
 	return &appointmentUsecase{
 		appointmentRepo: appointmentRepo,
 		scheduleRepo:    scheduleRepo,
 		patientRepo:     patientRepo,
 		doctorRepo:      doctorRepo,
+		db:              db,
 	}
 }
 
@@ -63,10 +68,10 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 		return nil, errors.New("appointment date cannot be in the past")
 	}
 
-	// Get patient profile
-	patient, err := u.patientRepo.FindByUserID(patientUserID)
+	// Get patient profile (with auto-create fallback)
+	patient, err := GetOrCreatePatient(u.patientRepo, patientUserID)
 	if err != nil {
-		return nil, errors.New("patient profile not found")
+		return nil, err
 	}
 
 	// Validate complete user profile
@@ -105,21 +110,41 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 		}
 	}
 
-	// Generate queue number
-	queueNumber, _ := u.appointmentRepo.NextQueueNumber(scheduleID, appointmentDate)
+	// Use transaction for atomic queue number generation and appointment creation
+	var appointment *entity.Appointment
+	err = u.db.Transaction(func(tx *gorm.DB) error {
+		// Lock the schedule row to prevent concurrent bookings
+		var schedule entity.DoctorSchedule
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&schedule, "id = ?", scheduleID).Error; err != nil {
+			return errors.New("failed to lock schedule")
+		}
 
-	appointment := &entity.Appointment{
-		ID:              uuid.New(),
-		PatientID:       patient.ID,
-		DoctorID:        doctorID,
-		ScheduleID:      scheduleID,
-		AppointmentDate: appointmentDate,
-		QueueNumber:     queueNumber,
-		Status:          entity.StatusWaiting,
-	}
+		// Generate queue number within transaction
+		queueNumber, err := u.appointmentRepo.NextQueueNumber(scheduleID, appointmentDate)
+		if err != nil {
+			return errors.New("failed to generate queue number")
+		}
 
-	if err := u.appointmentRepo.Create(appointment); err != nil {
-		return nil, errors.New("failed to book appointment")
+		appointment = &entity.Appointment{
+			ID:              uuid.New(),
+			PatientID:       patient.ID,
+			DoctorID:        doctorID,
+			ScheduleID:      scheduleID,
+			AppointmentDate: appointmentDate,
+			QueueNumber:     queueNumber,
+			Status:          entity.StatusWaiting,
+		}
+
+		if err := tx.Create(appointment).Error; err != nil {
+			return errors.New("failed to create appointment")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return u.appointmentRepo.FindByID(appointment.ID)
@@ -130,9 +155,10 @@ func (u *appointmentUsecase) GetAll(limit, offset int, status, date string) ([]e
 }
 
 func (u *appointmentUsecase) GetByPatient(patientUserID uuid.UUID, limit, offset int) ([]entity.Appointment, int64, error) {
-	patient, err := u.patientRepo.FindByUserID(patientUserID)
+	// Get patient profile (with auto-create fallback)
+	patient, err := GetOrCreatePatient(u.patientRepo, patientUserID)
 	if err != nil {
-		return nil, 0, errors.New("patient not found")
+		return nil, 0, err
 	}
 	return u.appointmentRepo.FindByPatientID(patient.ID, limit, offset)
 }
@@ -207,8 +233,12 @@ func (u *appointmentUsecase) Cancel(id uuid.UUID, actorRole string, actorUserID 
 
 	// Patient can only cancel their own
 	if actorRole == string(entity.RolePatient) {
-		patient, _ := u.patientRepo.FindByUserID(actorUserID)
-		if patient == nil || app.PatientID != patient.ID {
+		// Get patient profile (with auto-create fallback)
+		patient, err := GetOrCreatePatient(u.patientRepo, actorUserID)
+		if err != nil {
+			return err
+		}
+		if app.PatientID != patient.ID {
 			return errors.New("you don't have permission to cancel this appointment")
 		}
 	}

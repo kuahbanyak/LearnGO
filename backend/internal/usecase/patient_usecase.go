@@ -53,7 +53,7 @@ func (u *patientUsecase) Update(userID uuid.UUID, req *dto.UpdatePatientRequest)
 	}
 
 	if req.NIK != "" {
-		patient.NIK = req.NIK
+		patient.NIK = &req.NIK
 	}
 	if req.DateOfBirth != "" {
 		dob, err := time.Parse("2006-01-02", req.DateOfBirth)

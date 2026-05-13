@@ -11,6 +11,7 @@ import (
 	"mediqueue/internal/repository"
 	"mediqueue/internal/usecase"
 	"mediqueue/internal/ws"
+	"mediqueue/pkg/logger"
 	"mediqueue/pkg/utils"
 
 	"github.com/gin-contrib/cors"
@@ -21,6 +22,19 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
+	// Initialize logger
+	if err := logger.Init(cfg.AppEnv); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer logger.Sync()
+
+	logger.Info("Starting MediQueue API")
+
 	// Initialize JWT
 	utils.InitJWT(cfg.JWTSecret)
 
@@ -29,6 +43,11 @@ func main() {
 
 	// Run schema migrations
 	database.Migrate(db)
+
+	// Create database indexes for performance
+	if err := database.CreateIndexes(db); err != nil {
+		logger.Warn("Some indexes failed to create, continuing anyway")
+	}
 
 	// Run seeder
 	database.Seed(db, cfg)
@@ -49,11 +68,11 @@ func main() {
 	symptomScreeningRepo := repository.NewSymptomScreeningRepository(db)
 
 	// Initialize use cases
-	authUC := usecase.NewAuthUsecase(userRepo, patientRepo)
+	authUC := usecase.NewAuthUsecase(userRepo, patientRepo, db)
 	patientUC := usecase.NewPatientUsecase(patientRepo)
 	doctorUC := usecase.NewDoctorUsecase(doctorRepo, userRepo)
 	scheduleUC := usecase.NewScheduleUsecase(scheduleRepo, doctorRepo)
-	appointmentUC := usecase.NewAppointmentUsecase(appointmentRepo, scheduleRepo, patientRepo, doctorRepo)
+	appointmentUC := usecase.NewAppointmentUsecase(appointmentRepo, scheduleRepo, patientRepo, doctorRepo, db)
 	medRecordUC := usecase.NewMedicalRecordUsecase(medRecordRepo, appointmentRepo, doctorRepo)
 	dashboardUC := usecase.NewDashboardUsecase(db, doctorRepo, patientRepo)
 	userUC := usecase.NewUserUsecase(userRepo)
@@ -86,15 +105,16 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS
-	corsOrigins := []string{"http://localhost:5173", "http://localhost:3000", "http://localhost:4173"}
-	if cfg.AppEnv == "production" {
-		corsOrigins = []string{"*"}
-	}
+	// Global middleware
+	r.Use(middleware.RequestIDMiddleware()) // Add request ID to all requests
+
+	// CORS - Use configuration method
+	corsOrigins := cfg.GetAllowedOrigins()
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID"},
+		ExposeHeaders:    []string{"X-Request-ID"},
 		AllowCredentials: cfg.AppEnv != "production",
 	}))
 
@@ -107,8 +127,8 @@ func main() {
 	// ── Auth routes (public) ──
 	auth := api.Group("/auth")
 	{
-		auth.POST("/register", authH.Register)
-		auth.POST("/login", authH.Login)
+		auth.POST("/register", middleware.RateLimitMiddleware(3), authH.Register)
+		auth.POST("/login", middleware.RateLimitMiddleware(5), authH.Login)
 		auth.GET("/me", middleware.AuthMiddleware(), authH.GetProfile)
 		auth.PUT("/profile", middleware.AuthMiddleware(), authH.UpdateProfile)
 		auth.DELETE("/me", middleware.AuthMiddleware(), authH.DeleteProfile)
@@ -181,6 +201,7 @@ func main() {
 	// ── Patient routes ──
 	patientOnly := protected.Group("/")
 	patientOnly.Use(middleware.RequireRole(entity.RolePatient))
+	patientOnly.Use(middleware.RequirePatientProfile(patientRepo))
 	{
 		patientOnly.POST("/appointments", appointmentH.Book)
 		patientOnly.GET("/appointments/my", appointmentH.GetMyAppointments)

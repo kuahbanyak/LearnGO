@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Loader2, Search, Clock, UserCheck, CheckCircle, XCircle, Calendar as CalendarIcon, Filter, AlertTriangle, Download } from 'lucide-react'
+import { ClipboardList, Loader2, Clock, UserCheck, CheckCircle, XCircle, Calendar as CalendarIcon, Filter, AlertTriangle, Download } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

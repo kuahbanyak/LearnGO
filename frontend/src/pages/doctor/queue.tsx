@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, ChevronRight, CheckCircle, UserCheck, Clock, Users, ArrowRight } from 'lucide-react'
+import { Loader2, ChevronRight, CheckCircle, UserCheck, Clock, Users } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
