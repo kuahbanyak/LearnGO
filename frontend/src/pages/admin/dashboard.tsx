@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Users, UserCog, Calendar, Clock, CheckCircle, ArrowRight, TrendingUp, Activity } from 'lucide-react'
+import { Users, UserCog, Calendar, Clock, CheckCircle, ArrowRight, TrendingUp, Activity, QrCode } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -193,6 +193,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent className="space-y-2">
             {[
+              { label: 'Scan Check-in', href: '/admin/scan-checkin', gradient: 'from-cyan-50 to-cyan-100/50', hoverGrad: 'hover:from-cyan-100 hover:to-cyan-200/50', textColor: 'text-cyan-700', icon: QrCode, iconBg: 'bg-cyan-500' },
               { label: 'Tambah Dokter', href: '/admin/doctors', gradient: 'from-blue-50 to-blue-100/50', hoverGrad: 'hover:from-blue-100 hover:to-blue-200/50', textColor: 'text-blue-700', icon: UserCog, iconBg: 'bg-blue-500' },
               { label: 'Atur Jadwal', href: '/admin/schedules', gradient: 'from-purple-50 to-purple-100/50', hoverGrad: 'hover:from-purple-100 hover:to-purple-200/50', textColor: 'text-purple-700', icon: Calendar, iconBg: 'bg-purple-500' },
               { label: 'Data Pasien', href: '/admin/patients', gradient: 'from-emerald-50 to-emerald-100/50', hoverGrad: 'hover:from-emerald-100 hover:to-emerald-200/50', textColor: 'text-emerald-700', icon: Users, iconBg: 'bg-emerald-500' },
@@ -201,7 +202,7 @@ export default function AdminDashboard() {
               <Link
                 key={href}
                 to={href}
-                className={`flex items-center gap-3 p-3.5 rounded-xl bg-gradient-to-r ${gradient} ${hoverGrad} border border-transparent hover:border-slate-200/50 transition-all duration-200 group`}
+                className={`flex items-center gap-3 p-3.5 rounded-xl bg-linear-to-r ${gradient} ${hoverGrad} border border-transparent hover:border-slate-200/50 transition-all duration-200 group`}
               >
                 <div className={`p-2 rounded-lg ${iconBg} shadow-sm`}>
                   <Icon className="size-3.5 text-white" />

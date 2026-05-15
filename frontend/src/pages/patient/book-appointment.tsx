@@ -54,11 +54,11 @@ export default function BookAppointmentPage() {
 
   const getNextDate = (dayOfWeek: number): string => {
     const today = new Date()
-    const diff = (dayOfWeek - today.getDay() + 7) % 7
+    const currentDay = today.getDay()
+    const diff = (dayOfWeek - currentDay + 7) % 7
     const next = new Date(today)
-    next.setDate(today.getDate() + (diff === 0 ? 7 : diff))
+    next.setDate(today.getDate() + diff)
 
-    // Format YYYY-MM-DD in local time
     const yyyy = next.getFullYear()
     const mm = String(next.getMonth() + 1).padStart(2, '0')
     const dd = String(next.getDate()).padStart(2, '0')

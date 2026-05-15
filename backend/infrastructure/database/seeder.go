@@ -77,8 +77,8 @@ func seedDemoDoctor(db *gorm.DB) {
 	}
 	db.Create(&doctor)
 
-	// Monday & Wednesday schedule
-	for _, day := range []int{1, 3} {
+	// Monday, Wednesday & Friday schedule
+	for _, day := range []int{1, 3, 5} {
 		schedule := entity.DoctorSchedule{
 			ID:         uuid.New(),
 			DoctorID:   doctor.ID,

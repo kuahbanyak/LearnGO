@@ -23,7 +23,7 @@ These are actionable innovations sorted by **impact vs effort**. All are compati
 |---|---------|----------------|---------------------|
 | 1 | **Real-time Queue via WebSocket** | Currently polling every 5–30s. WebSocket makes TV display & patient pages truly live with zero lag | Add `github.com/gorilla/websocket` to Go backend; broadcast events on `status_change` |
 | 2 | **WhatsApp / Telegram Notification Bot** | Notify patients when their queue is called — reduces physical waiting room crowding | Use `go-whatsapp` or Telegram Bot API; trigger on `in_progress` status change |
-| 3 | **QR Code Check-in** | Patient scans QR to confirm arrival; reduces no-shows and manual admin work | Generate QR with `skip2/go-qrcode` on appointment creation; patient scans to `PATCH /check-in` |
+| 3 | **QR Code Check-in** | Patient scans QR to confirm arrival; reduces no-shows and manual admin work | ✅ IMPLEMENTED - Admin can scan/upload patient QR codes via camera, file upload, or manual token entry at `/admin/scan-checkin` |
 | 4 | **AI Symptom Pre-screening** | Patient fills a symptom form before arriving; helps doctors prepare faster | Integrate OpenAI API or a local Ollama model; store `preliminary_notes` in `appointments` |
 | 5 | **Analytics Dashboard with Charts** | Admin needs trend data: peak hours, busiest doctors, cancellation rate | Use existing `recharts` library; add backend `GET /api/v1/analytics` endpoint |
 
@@ -33,7 +33,7 @@ These are actionable innovations sorted by **impact vs effort**. All are compati
 |---|---------|----------------|---------------------|
 | 6 | **Doctor Rating System** | Patients rate their experience (1–5 stars + comment) after visit; builds trust | Add `ratings` table with `appointment_id`, `score`, `comment` |
 | 7 | **Dark Mode Toggle** | CSS variables already support dark mode in `index.css` — just needs a toggle button | Add `ThemeProvider` with localStorage persistence; toggle `.dark` class on `<html>` |
-| 8 | **Patient Self-Check-in Kiosk** | A dedicated full-screen page (like TV display) where patient types queue number to check in | New route `/kiosk` styled like `tv-display` |
+| 8 | **Patient Self-Check-in Kiosk** | A dedicated full-screen page (like TV display) where patient types queue number to check in | ✅ IMPLEMENTED - Admin QR scanner page at `/admin/scan-checkin` supports camera, file upload, and manual token |
 | 9 | **Multi-Clinic Support** | Allow the system to manage multiple clinic branches | Add `clinic_id` FK to all entities; admin can scope by branch |
 | 10 | **Export to PDF/Excel** | Admins need reports: daily queue summary, doctor performance | Use `jung-kurt/gofpdf` or `xuri/excelize` in Go for server-side export |
 
@@ -306,6 +306,7 @@ frontend/src/
 │   │   ├── patients.tsx        # Patient directory
 │   │   ├── appointments.tsx    # All-clinic queue view
 │   │   ├── users.tsx           # User management (activate/deactivate)
+│   │   ├── scan-checkin.tsx    # QR scanner for patient check-in (camera/upload/manual)
 │   │   └── tv-display.tsx      # Full-screen queue board (no sidebar)
 │   ├── doctor/
 │   │   ├── dashboard.tsx       # Doctor stats + today summary
@@ -473,6 +474,74 @@ npm run build
 ```
 
 > **Note:** The frontend proxies API calls to `http://localhost:8080` via `vite.config.ts`. Ensure the backend is running first.
+
+---
+
+## 5. 📱 QR Check-in System (Implemented)
+
+### Overview
+
+The QR Check-in system allows clinic staff to quickly check-in patients by scanning their QR codes. This reduces manual data entry and speeds up the check-in process.
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Camera Scanner** | Real-time QR code scanning via webcam |
+| **File Upload** | Upload QR code image files (PNG, JPG, etc.) |
+| **Manual Entry** | Paste token or URL for manual check-in |
+| **Success Display** | Shows queue number and doctor info after check-in |
+
+### How It Works
+
+1. Patient books an appointment and receives a QR code (viewable in "My Queue" page)
+2. QR code contains a unique 64-character token linked to the appointment
+3. At the clinic, admin/staff scans the QR code using `/admin/scan-checkin`
+4. System validates the token and marks the patient as checked-in
+5. Patient's queue status updates in real-time via WebSocket
+
+### Technical Implementation
+
+**Backend:**
+- `internal/entity/checkin_token.go` — CheckInToken model (token, expires_at, used_at)
+- `internal/usecase/checkin_usecase.go` — Token generation and validation logic
+- `internal/handler/checkin_handler.go` — QR code generation and check-in endpoints
+- QR code image generated using `github.com/skip2/go-qrcode`
+
+**Frontend:**
+- `src/pages/admin/scan-checkin.tsx` — Admin QR scanner page
+- Uses `html5-qrcode` library for camera and file-based scanning
+- Three input methods: camera, file upload, manual token
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/appointments/:id/qr` | GET | Get QR code PNG image for appointment |
+| `/api/v1/check-in/:token` | PATCH | Validate token and check-in patient |
+| `/api/v1/appointments/:id/check-in-status` | GET | Get check-in status for appointment |
+
+### QR Code URL Format
+
+```
+https://mediqueue.app/check-in/{64-character-token}
+```
+
+The token is extracted from the URL and validated against the database.
+
+### Booking Fix (May 2026)
+
+Fixed an issue where patients couldn't book appointments for the current day:
+- **Problem:** Frontend forced same-day bookings to next week
+- **Solution:** Removed the `diff === 0 ? 7 : diff` check in `getNextDate()` function
+- **File:** `frontend/src/pages/patient/book-appointment.tsx:55-66`
+
+### Schedule Seeder Update
+
+Added Friday to the default doctor schedule:
+- **Before:** Monday, Wednesday (`[]int{1, 3}`)
+- **After:** Monday, Wednesday, Friday (`[]int{1, 3, 5}`)
+- **File:** `backend/infrastructure/database/seeder.go:80-81`
 
 ---
 

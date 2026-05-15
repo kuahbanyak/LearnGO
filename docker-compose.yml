@@ -14,9 +14,9 @@ services:
     container_name: mediqueue_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-mediqueue}
+      POSTGRES_DB: ${DB_NAME:-Clinic}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-12}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
       TZ: Asia/Jakarta
     ports:
@@ -27,7 +27,7 @@ services:
     networks:
       - mediqueue_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-mediqueue}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-Clinic}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,8 +55,8 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-mediqueue}
+      DB_PASSWORD: ${DB_PASSWORD:-12}
+      DB_NAME: ${DB_NAME:-Clinic}
       
       # JWT
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
@@ -66,6 +66,9 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@mediqueue.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
       ADMIN_NAME: ${ADMIN_NAME:-Super Admin}
+      
+      # CORS
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       
       # Redis (optional - for future caching)
       # REDIS_HOST: redis

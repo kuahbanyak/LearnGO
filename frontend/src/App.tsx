@@ -20,6 +20,7 @@ const AdminAppointmentsPage = lazy(() => import('@/pages/admin/appointments'))
 const AdminUsersPage = lazy(() => import('@/pages/admin/users'))
 const TvDisplayPage = lazy(() => import('@/pages/admin/tv-display'))
 const AnalyticsPage = lazy(() => import('@/pages/admin/analytics'))
+const ScanCheckInPage = lazy(() => import('@/pages/admin/scan-checkin'))
 const CheckInPage = lazy(() => import('@/pages/public/check-in'))
 
 // Lazy load doctor pages
@@ -90,6 +91,7 @@ export default function App() {
                   <Route path="/admin/appointments" element={<AdminAppointmentsPage />} />
                   <Route path="/admin/users"        element={<AdminUsersPage />} />
                   <Route path="/admin/analytics"    element={<AnalyticsPage />} />
+                  <Route path="/admin/scan-checkin" element={<ScanCheckInPage />} />
                 </Route>
                 {/* Standalone Pages without Layout */}
                 <Route path="/admin/tv-display"   element={<TvDisplayPage />} />
