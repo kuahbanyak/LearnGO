@@ -56,7 +56,7 @@ func (h *MedicalRecordExportHandler) ExportPDF(c *gin.Context) {
 	pdf.Rect(10, pdf.GetY(), 190, 25, "F")
 	pdf.SetFont("Arial", "B", 12)
 	pdf.SetXY(15, pdf.GetY()+5)
-	pdf.CellFormat(0, 6, fmt.Sprintf("Dr. %s", record.Doctor.User.FullName), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 6, fmt.Sprintf("Dr. %s", record.Doctor.FullName), "", 1, "L", false, 0, "")
 	pdf.SetX(15)
 	pdf.SetFont("Arial", "", 10)
 	pdf.CellFormat(0, 5, record.Doctor.Specialization, "", 1, "L", false, 0, "")

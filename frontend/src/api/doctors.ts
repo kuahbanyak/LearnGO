@@ -8,6 +8,7 @@ export const doctorApi = {
   getById: (id: string) => apiClient.get<ApiResponse<Doctor>>(`/doctors/${id}`),
 
   create: (data: {
+    username: string
     email: string
     password: string
     full_name: string

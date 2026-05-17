@@ -26,7 +26,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [hasError, setHasError] = useState(false)
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ login: '', password: '' })
 
   const mutation = useMutation({
     mutationFn: authApi.login,
@@ -198,13 +198,13 @@ export default function LoginPage() {
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700" htmlFor="login-email">Email</label>
+              <label className="text-sm font-semibold text-slate-700" htmlFor="login-input">Email / Username</label>
               <Input
-                id="login-email"
-                type="email"
-                placeholder="email@example.com"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                id="login-input"
+                type="text"
+                placeholder="email@example.com atau username"
+                value={form.login}
+                onChange={(e) => setForm({ ...form, login: e.target.value })}
                 className="h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus-visible:ring-blue-500 rounded-xl shadow-sm text-base"
                 required
               />
@@ -263,17 +263,17 @@ export default function LoginPage() {
           {/* Demo accounts */}
           <div className="grid grid-cols-2 gap-2">
             {[
-              { role: '👑 Admin', email: 'admin@mediqueue.com', pass: 'Admin@123', color: 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' },
-              { role: '🩺 Dokter', email: 'doctor@mediqueue.com', pass: 'Doctor@123', color: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-100 text-emerald-700' },
-            ].map(({ role, email, pass, color }) => (
+              { role: '👑 Admin', login: 'admin', pass: 'Admin@123', color: 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' },
+              { role: '🩺 Dokter', login: 'drbudi', pass: 'Doctor@123', color: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-100 text-emerald-700' },
+            ].map(({ role, login, pass, color }) => (
               <button
-                key={email}
+                key={login}
                 type="button"
-                onClick={() => setForm({ email, password: pass })}
+                onClick={() => setForm({ login, password: pass })}
                 className={`flex flex-col items-start p-3 rounded-xl border text-xs transition-all hover:shadow-sm ${color}`}
               >
                 <span className="font-bold text-sm">{role}</span>
-                <span className="opacity-60 mt-0.5 truncate w-full text-left">{email}</span>
+                <span className="opacity-60 mt-0.5 truncate w-full text-left">{login}</span>
               </button>
             ))}
           </div>

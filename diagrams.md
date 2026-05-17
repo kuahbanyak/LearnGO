@@ -18,18 +18,19 @@ erDiagram
     PATIENTS ||--o{ MEDICAL_RECORDS : "owns"
     DOCTORS ||--o{ MEDICAL_RECORDS : "creates"
     MEDICAL_RECORDS ||--o{ PRESCRIPTIONS : "includes"
+    APPOINTMENTS ||--o| CHECKIN_TOKENS : "generates"
+    APPOINTMENTS ||--o| RATINGS : "receives"
+    APPOINTMENTS ||--o| SYMPTOM_SCREENINGS : "has"
 
     USERS {
         uuid ID PK
         string Email
         string PasswordHash
         string Role
+        string Username
         string FullName
         string Phone
         string NIK
-        string Gender
-        string Address
-        string BloodType
         boolean IsActive
         time CreatedAt
     }
@@ -37,6 +38,8 @@ erDiagram
     PATIENTS {
         uuid ID PK
         uuid UserID FK
+        string FullName
+        string Phone
         string NIK
         time DateOfBirth
         string Gender
@@ -48,6 +51,8 @@ erDiagram
     DOCTORS {
         uuid ID PK
         uuid UserID FK
+        string FullName
+        string Phone
         string Specialization
         string SIPNumber
     }
@@ -96,6 +101,220 @@ erDiagram
         string UsageInstruction
         string Notes
     }
+
+    CHECKIN_TOKENS {
+        uuid ID PK
+        uuid AppointmentID FK
+        string Token
+        time ExpiresAt
+        time UsedAt
+    }
+
+    RATINGS {
+        uuid ID PK
+        uuid AppointmentID FK
+        uuid PatientID FK
+        uuid DoctorID FK
+        int Score
+        string Comment
+    }
+
+    SYMPTOM_SCREENINGS {
+        uuid ID PK
+        uuid AppointmentID FK
+        uuid PatientID FK
+        string Symptoms
+        string Severity
+        string Notes
+    }
+
+    RATINGS {
+        uuid ID PK
+        uuid AppointmentID FK
+        uuid PatientID FK
+        uuid DoctorID FK
+        int Score
+        string Comment
+    }
+```
+
+## 5. Use Case Diagram
+
+This diagram shows the main use cases for each user role in the MediQueue system.
+
+```mermaid
+flowchart TD
+    subgraph Actors
+        Patient((Patient))
+        Doctor((Doctor))
+        Admin((Admin))
+    end
+
+    subgraph Authentication
+        UC1[Register Account]
+        UC2[Login]
+        UC3[Update Profile]
+    end
+
+    subgraph Patient_Use_Cases["Patient Use Cases"]
+        UC4[Book Appointment]
+        UC5[View Queue Status]
+        UC6[View Medical History]
+        UC7[Cancel Appointment]
+        UC8[View QR Code]
+        UC9[Rate Doctor]
+        UC10[Submit Symptom Screening]
+    end
+
+    subgraph Doctor_Use_Cases["Doctor Use Cases"]
+        UC11[View Today's Queue]
+        UC12[Update Queue Status]
+        UC13[Create Medical Record]
+        UC14[Add Prescription]
+        UC15[View Patient History]
+        UC16[View Own Schedules]
+    end
+
+    subgraph Admin_Use_Cases["Admin Use Cases"]
+        UC17[Manage Users]
+        UC18[Manage Doctors]
+        UC19[Manage Schedules]
+        UC20[View All Appointments]
+        UC21[Scan QR Check-in]
+        UC22[View Dashboard Analytics]
+        UC23[View TV Display]
+        UC24[Export Reports]
+    end
+
+    Patient --> UC1
+    Patient --> UC2
+    Patient --> UC3
+    Patient --> UC4
+    Patient --> UC5
+    Patient --> UC6
+    Patient --> UC7
+    Patient --> UC8
+    Patient --> UC9
+    Patient --> UC10
+
+    Doctor --> UC2
+    Doctor --> UC3
+    Doctor --> UC11
+    Doctor --> UC12
+    Doctor --> UC13
+    Doctor --> UC14
+    Doctor --> UC15
+    Doctor --> UC16
+
+    Admin --> UC2
+    Admin --> UC3
+    Admin --> UC17
+    Admin --> UC18
+    Admin --> UC19
+    Admin --> UC20
+    Admin --> UC21
+    Admin --> UC22
+    Admin --> UC23
+    Admin --> UC24
+```
+
+## 6. System Architecture Diagram
+
+This diagram shows the high-level architecture of the MediQueue system.
+
+```mermaid
+flowchart TB
+    subgraph Client["Client Layer"]
+        Browser[Web Browser]
+        Mobile[Mobile Browser]
+        TV[TV Display]
+    end
+
+    subgraph Frontend["Frontend Layer - React + TypeScript"]
+        ReactApp[React Application]
+        TanStack[TanStack Query]
+        Zustand[Zustand Store]
+        Axios[Axios HTTP Client]
+        WebSocket[WebSocket Client]
+    end
+
+    subgraph Backend["Backend Layer - Go + Gin"]
+        API[REST API Handlers]
+        Middleware[Middleware Layer]
+        Usecase[Business Logic]
+        Repository[Data Access Layer]
+        WSServer[WebSocket Server]
+    end
+
+    subgraph Database["Database Layer"]
+        PostgreSQL[(PostgreSQL)]
+    end
+
+    subgraph External["External Services"]
+        QRService[QR Code Generator]
+        EmailService[Email Service]
+        NotificationService[Push Notifications]
+    end
+
+    Browser --> ReactApp
+    Mobile --> ReactApp
+    TV --> ReactApp
+
+    ReactApp --> TanStack
+    ReactApp --> Zustand
+    ReactApp --> WebSocket
+    TanStack --> Axios
+
+    Axios --> API
+    WebSocket --> WSServer
+
+    API --> Middleware
+    Middleware --> Usecase
+    Usecase --> Repository
+    Repository --> PostgreSQL
+
+    WSServer --> Usecase
+
+    Usecase --> QRService
+    Usecase --> EmailService
+    Usecase --> NotificationService
+```
+
+## 7. Sequence Diagram - Appointment Booking
+
+This diagram shows the sequence of interactions during appointment booking.
+
+```mermaid
+sequenceDiagram
+    participant P as Patient
+    participant F as Frontend
+    participant B as Backend
+    participant DB as Database
+
+    P->>F: Select Doctor
+    F->>B: GET /api/v1/doctors
+    B->>DB: Query doctors
+    DB-->>B: Doctor list
+    B-->>F: Doctors response
+    F-->>P: Display doctors
+
+    P->>F: Select Schedule
+    F->>B: GET /api/v1/schedules?doctor_id=X
+    B->>DB: Query schedules
+    DB-->>B: Schedule list
+    B-->>F: Schedules response
+    F-->>P: Display available slots
+
+    P->>F: Confirm Booking
+    F->>B: POST /api/v1/appointments
+    B->>DB: Check quota
+    DB-->>B: Quota available
+    B->>DB: Create appointment
+    B->>DB: Generate queue number
+    B->>DB: Generate QR token
+    DB-->>B: Appointment created
+    B-->>F: Appointment response
+    F-->>P: Show confirmation + QR
 ```
 
 ## 2. Data Flow Diagram (DFD)

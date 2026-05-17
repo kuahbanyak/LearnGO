@@ -11,6 +11,8 @@ type UserRepository interface {
 	Create(user *entity.User) error
 	FindByID(id uuid.UUID) (*entity.User, error)
 	FindByEmail(email string) (*entity.User, error)
+	FindByUsername(username string) (*entity.User, error)
+	FindByLogin(login string) (*entity.User, error)
 	FindAll(limit, offset int) ([]entity.User, int64, error)
 	Update(user *entity.User) error
 	Delete(id uuid.UUID) error
@@ -30,7 +32,7 @@ func (r *userRepository) Create(user *entity.User) error {
 
 func (r *userRepository) FindByID(id uuid.UUID) (*entity.User, error) {
 	var user entity.User
-	err := r.db.Preload("Patient").Preload("Doctor").First(&user, "id = ?", id).Error
+	err := r.db.Preload("Role").Preload("Patient").Preload("Doctor").First(&user, "id = ?", id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +42,24 @@ func (r *userRepository) FindByID(id uuid.UUID) (*entity.User, error) {
 func (r *userRepository) FindByEmail(email string) (*entity.User, error) {
 	var user entity.User
 	err := r.db.Where("email = ?", email).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *userRepository) FindByUsername(username string) (*entity.User, error) {
+	var user entity.User
+	err := r.db.Where("username = ?", username).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *userRepository) FindByLogin(login string) (*entity.User, error) {
+	var user entity.User
+	err := r.db.Where("email = ? OR username = ?", login, login).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +82,7 @@ func (r *userRepository) FindAll(limit, offset int) ([]entity.User, int64, error
 		db = db.Offset(offset)
 	}
 
-	if err := db.Preload("Patient").Preload("Doctor").Find(&users).Error; err != nil {
+	if err := db.Preload("Role").Preload("Patient").Preload("Doctor").Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
 

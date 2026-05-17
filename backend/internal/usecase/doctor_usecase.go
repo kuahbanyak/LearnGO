@@ -23,16 +23,27 @@ type DoctorUsecase interface {
 type doctorUsecase struct {
 	doctorRepo repository.DoctorRepository
 	userRepo   repository.UserRepository
+	roleRepo   repository.RoleRepository
 }
 
-func NewDoctorUsecase(doctorRepo repository.DoctorRepository, userRepo repository.UserRepository) DoctorUsecase {
-	return &doctorUsecase{doctorRepo: doctorRepo, userRepo: userRepo}
+func NewDoctorUsecase(doctorRepo repository.DoctorRepository, userRepo repository.UserRepository, roleRepo repository.RoleRepository) DoctorUsecase {
+	return &doctorUsecase{doctorRepo: doctorRepo, userRepo: userRepo, roleRepo: roleRepo}
 }
 
 func (u *doctorUsecase) Create(req *dto.CreateDoctorRequest) (*entity.Doctor, error) {
 	existing, _ := u.userRepo.FindByEmail(req.Email)
 	if existing != nil {
 		return nil, errors.New("email already registered")
+	}
+
+	existing, _ = u.userRepo.FindByUsername(req.Username)
+	if existing != nil {
+		return nil, errors.New("username already taken")
+	}
+
+	doctorRole, err := u.roleRepo.FindByName("Doctor")
+	if err != nil {
+		return nil, errors.New("failed to find doctor role")
 	}
 
 	hash, err := utils.HashPassword(req.Password)
@@ -43,11 +54,10 @@ func (u *doctorUsecase) Create(req *dto.CreateDoctorRequest) (*entity.Doctor, er
 	userID := uuid.New()
 	user := &entity.User{
 		ID:           userID,
+		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: hash,
-		Role:         entity.RoleDoctor,
-		FullName:     req.FullName,
-		Phone:        req.Phone,
+		RoleID:       doctorRole.ID,
 		IsActive:     true,
 	}
 	if err := u.userRepo.Create(user); err != nil {
@@ -57,6 +67,8 @@ func (u *doctorUsecase) Create(req *dto.CreateDoctorRequest) (*entity.Doctor, er
 	doctor := &entity.Doctor{
 		ID:             uuid.New(),
 		UserID:         userID,
+		FullName:       req.FullName,
+		Phone:          req.Phone,
 		Specialization: req.Specialization,
 		SIPNumber:      req.SIPNumber,
 	}
@@ -64,6 +76,7 @@ func (u *doctorUsecase) Create(req *dto.CreateDoctorRequest) (*entity.Doctor, er
 		return nil, errors.New("failed to create doctor profile")
 	}
 
+	user.Role = doctorRole
 	doctor.User = user
 	return doctor, nil
 }
@@ -89,22 +102,17 @@ func (u *doctorUsecase) Update(id uuid.UUID, req *dto.UpdateDoctorRequest) (*ent
 		return nil, errors.New("doctor not found")
 	}
 
+	if req.FullName != "" {
+		doctor.FullName = req.FullName
+	}
+	if req.Phone != "" {
+		doctor.Phone = req.Phone
+	}
 	if req.Specialization != "" {
 		doctor.Specialization = req.Specialization
 	}
 	if req.SIPNumber != "" {
 		doctor.SIPNumber = req.SIPNumber
-	}
-
-	// Update linked user
-	if doctor.User != nil {
-		if req.FullName != "" {
-			doctor.User.FullName = req.FullName
-		}
-		if req.Phone != "" {
-			doctor.User.Phone = req.Phone
-		}
-		_ = u.userRepo.Update(doctor.User)
 	}
 
 	if err := u.doctorRepo.Update(doctor); err != nil {

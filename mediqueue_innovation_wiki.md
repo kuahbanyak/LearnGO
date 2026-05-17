@@ -139,12 +139,15 @@ backend/
 
 | Table | Key Fields | Relations |
 |-------|-----------|-----------|
-| `users` | id, email, password_hash, role, full_name, nik | → patients, doctors |
-| `patients` | id, user_id, date_of_birth, blood_type, allergies | ← users |
-| `doctors` | id, user_id, specialization, sip_number | ← users |
+| `users` | id, email, password_hash, role, full_name, phone, nik | → patients, doctors |
+| `patients` | id, user_id, full_name, phone, date_of_birth, blood_type, allergies | ← users |
+| `doctors` | id, user_id, full_name, phone, specialization, sip_number | ← users |
 | `doctor_schedules` | id, doctor_id, day_of_week, start_time, end_time, max_patient | ← doctors |
 | `appointments` | id, patient_id, doctor_id, schedule_id, queue_number, status | ← patients, doctors, schedules |
 | `medical_records` | id, appointment_id, diagnosis, icd_code, prescriptions (array) | ← appointments |
+| `checkin_tokens` | id, appointment_id, token, expires_at, used_at | ← appointments |
+| `ratings` | id, appointment_id, patient_id, doctor_id, score, comment | ← appointments |
+| `symptom_screenings` | id, appointment_id, patient_id, symptoms, severity, notes | ← appointments |
 
 ### Role & Permissions Matrix
 
@@ -437,6 +440,21 @@ interface AuthState {
   logout: () => void
 }
 ```
+
+### TypeScript Types (frontend/src/types/index.ts)
+
+```ts
+interface User {
+  id: string
+  username: string
+  email: string
+  full_name?: string
+  role: string
+  is_active: boolean
+  patient?: Patient
+  doctor?: Doctor
+}
+```
 - Token is persisted in `localStorage`
 - Axios interceptor reads token from store and sets `Authorization: Bearer <token>` header automatically
 
@@ -542,6 +560,56 @@ Added Friday to the default doctor schedule:
 - **Before:** Monday, Wednesday (`[]int{1, 3}`)
 - **After:** Monday, Wednesday, Friday (`[]int{1, 3, 5}`)
 - **File:** `backend/infrastructure/database/seeder.go:80-81`
+
+---
+
+## 6. 📊 Database Entity Relationships
+
+### Entity Overview
+
+| Entity | Purpose | Key Attributes |
+|--------|---------|----------------|
+| `User` | Base user account | email, password_hash, role, full_name |
+| `Patient` | Patient profile | full_name, phone, nik, date_of_birth, blood_type |
+| `Doctor` | Doctor profile | full_name, phone, specialization, sip_number |
+| `DoctorSchedule` | Doctor availability | day_of_week, start_time, end_time, max_patient |
+| `Appointment` | Booking record | queue_number, status, appointment_date |
+| `MedicalRecord` | Visit documentation | complaint, diagnosis, icd_code |
+| `Prescription` | Medication orders | medicine_name, dosage, quantity |
+| `CheckInToken` | QR check-in tokens | token, expires_at, used_at |
+| `Rating` | Patient feedback | score (1-5), comment |
+| `SymptomScreening` | Pre-visit symptoms | symptoms, severity, notes |
+
+### Key Relationships
+
+```
+User (1) ─── (0|1) Patient ─── (many) Appointments
+User (1) ─── (0|1) Doctor ─── (many) DoctorSchedules
+Doctor (1) ─── (many) Appointments ─── (0|1) MedicalRecord
+Appointment (1) ─── (0|1) CheckInToken
+Appointment (1) ─── (0|1) Rating
+Appointment (1) ─── (0|1) SymptomScreening
+MedicalRecord (1) ─── (many) Prescriptions
+```
+
+### Type Definitions (TypeScript)
+
+Full type definitions are maintained in `frontend/src/types/index.ts`. The `User` interface includes an optional `full_name` field that can be populated from the related `Patient` or `Doctor` entity:
+
+```ts
+interface User {
+  id: string
+  username: string
+  email: string
+  full_name?: string  // Populated from Patient/Doctor relation
+  role: string
+  is_active: boolean
+  patient?: Patient
+  doctor?: Doctor
+}
+```
+
+This design allows the frontend to display user names without additional API calls when the `Patient` or `Doctor` relation is included in the response.
 
 ---
 

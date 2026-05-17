@@ -10,9 +10,9 @@ import (
 )
 
 type UserUsecase interface {
-	GetAll(limit, offset int) ([]dto.UserResponse, int64, error)
-	GetByID(id uuid.UUID) (*dto.UserResponse, error)
-	Update(id uuid.UUID, req *dto.UpdateUserRequest) (*dto.UserResponse, error)
+	GetAll(limit, offset int) ([]dto.UserDetailResponse, int64, error)
+	GetByID(id uuid.UUID) (*dto.UserDetailResponse, error)
+	Update(id uuid.UUID, req *dto.UpdateUserRequest) (*dto.UserDetailResponse, error)
 	Delete(id uuid.UUID) error
 }
 
@@ -24,75 +24,118 @@ func NewUserUsecase(userRepo repository.UserRepository) UserUsecase {
 	return &userUsecase{userRepo: userRepo}
 }
 
-func (u *userUsecase) GetAll(limit, offset int) ([]dto.UserResponse, int64, error) {
+func (u *userUsecase) GetAll(limit, offset int) ([]dto.UserDetailResponse, int64, error) {
 	users, total, err := u.userRepo.FindAll(limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var res []dto.UserResponse
+	var res []dto.UserDetailResponse
 	for _, user := range users {
-		res = append(res, dto.UserResponse{
+		userResp := dto.UserDetailResponse{
 			ID:        user.ID,
+			Username:  user.Username,
 			Email:     user.Email,
-			Role:      string(user.Role),
-			FullName:  user.FullName,
-			Phone:     user.Phone,
-			NIK:       user.NIK,
-			Gender:    user.Gender,
-			Address:   user.Address,
-			BloodType: user.BloodType,
+			Role:      user.GetRoleName(),
 			IsActive:  user.IsActive,
 			CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt: user.UpdatedAt.Format("2006-01-02 15:04:05"),
-		})
+		}
+
+		if user.Patient != nil {
+			var dob *string
+			if user.Patient.DateOfBirth != nil {
+				d := user.Patient.DateOfBirth.Format("2006-01-02")
+				dob = &d
+			}
+			userResp.Patient = &dto.PatientDTO{
+				ID:          user.Patient.ID,
+				FullName:    user.Patient.FullName,
+				Phone:       user.Patient.Phone,
+				NIK:         user.Patient.NIK,
+				DateOfBirth: dob,
+				Gender:      string(user.Patient.Gender),
+				Address:     user.Patient.Address,
+				BloodType:   string(user.Patient.BloodType),
+				Allergies:   user.Patient.Allergies,
+			}
+		}
+
+		if user.Doctor != nil {
+			userResp.Doctor = &dto.DoctorDTO{
+				ID:             user.Doctor.ID,
+				FullName:       user.Doctor.FullName,
+				Phone:          user.Doctor.Phone,
+				Specialization: user.Doctor.Specialization,
+				SIPNumber:      user.Doctor.SIPNumber,
+			}
+		}
+
+		res = append(res, userResp)
 	}
 	return res, total, nil
 }
 
-func (u *userUsecase) GetByID(id uuid.UUID) (*dto.UserResponse, error) {
+func (u *userUsecase) GetByID(id uuid.UUID) (*dto.UserDetailResponse, error) {
 	user, err := u.userRepo.FindByID(id)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
 
-	return &dto.UserResponse{
+	userResp := &dto.UserDetailResponse{
 		ID:        user.ID,
+		Username:  user.Username,
 		Email:     user.Email,
-		Role:      string(user.Role),
-		FullName:  user.FullName,
-		Phone:     user.Phone,
-		NIK:       user.NIK,
-		Gender:    user.Gender,
-		Address:   user.Address,
-		BloodType: user.BloodType,
+		Role:      user.GetRoleName(),
 		IsActive:  user.IsActive,
 		CreatedAt: user.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt: user.UpdatedAt.Format("2006-01-02 15:04:05"),
-	}, nil
+	}
+
+	if user.Patient != nil {
+		var dob *string
+		if user.Patient.DateOfBirth != nil {
+			d := user.Patient.DateOfBirth.Format("2006-01-02")
+			dob = &d
+		}
+		userResp.Patient = &dto.PatientDTO{
+			ID:          user.Patient.ID,
+			FullName:    user.Patient.FullName,
+			Phone:       user.Patient.Phone,
+			NIK:         user.Patient.NIK,
+			DateOfBirth: dob,
+			Gender:      string(user.Patient.Gender),
+			Address:     user.Patient.Address,
+			BloodType:   string(user.Patient.BloodType),
+			Allergies:   user.Patient.Allergies,
+		}
+	}
+
+	if user.Doctor != nil {
+		userResp.Doctor = &dto.DoctorDTO{
+			ID:             user.Doctor.ID,
+			FullName:       user.Doctor.FullName,
+			Phone:          user.Doctor.Phone,
+			Specialization: user.Doctor.Specialization,
+			SIPNumber:      user.Doctor.SIPNumber,
+		}
+	}
+
+	return userResp, nil
 }
 
-func (u *userUsecase) Update(id uuid.UUID, req *dto.UpdateUserRequest) (*dto.UserResponse, error) {
+func (u *userUsecase) Update(id uuid.UUID, req *dto.UpdateUserRequest) (*dto.UserDetailResponse, error) {
 	user, err := u.userRepo.FindByID(id)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
 
-	user.FullName = req.FullName
-	user.Phone = req.Phone
-	if req.NIK != "" {
-		user.NIK = &req.NIK
+	if req.Username != "" {
+		user.Username = req.Username
 	}
-	if req.Gender != "" {
-		user.Gender = req.Gender
+	if req.Email != "" {
+		user.Email = req.Email
 	}
-	if req.Address != "" {
-		user.Address = req.Address
-	}
-	if req.BloodType != "" {
-		user.BloodType = req.BloodType
-	}
-
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
 	}

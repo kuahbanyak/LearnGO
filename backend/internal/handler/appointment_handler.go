@@ -2,7 +2,6 @@ package handler
 
 import (
 	"mediqueue/internal/dto"
-	"mediqueue/internal/entity"
 	"mediqueue/internal/middleware"
 	"mediqueue/internal/usecase"
 	"mediqueue/pkg/response"
@@ -151,6 +150,5 @@ func (h *AppointmentHandler) Cancel(c *gin.Context) {
 }
 
 func (h *AppointmentHandler) GetAllForAdmin(c *gin.Context) {
-	_ = entity.RoleAdmin // ensure import used
 	h.GetAll(c)
 }

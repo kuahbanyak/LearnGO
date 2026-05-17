@@ -1,13 +1,12 @@
 package middleware
 
 import (
-	"mediqueue/internal/entity"
 	"mediqueue/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RequireRole(roles ...entity.Role) gin.HandlerFunc {
+func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims := GetCurrentUser(c)
 		if claims == nil {
@@ -16,7 +15,7 @@ func RequireRole(roles ...entity.Role) gin.HandlerFunc {
 			return
 		}
 
-		userRole := entity.Role(claims.Role)
+		userRole := claims.Role
 		for _, role := range roles {
 			if userRole == role {
 				c.Next()

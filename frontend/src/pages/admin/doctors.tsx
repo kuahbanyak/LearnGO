@@ -16,10 +16,11 @@ interface DoctorModalProps {
 
 function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
   const [form, setForm] = useState({
+    username: doctor?.user?.username ?? '',
     email: doctor?.user?.email ?? '',
     password: '',
-    full_name: doctor?.user?.full_name ?? '',
-    phone: doctor?.user?.phone ?? '',
+    full_name: doctor?.full_name ?? '',
+    phone: doctor?.phone ?? '',
     specialization: doctor?.specialization ?? '',
     sip_number: doctor?.sip_number ?? '',
   })
@@ -71,6 +72,10 @@ function DoctorModal({ doctor, onClose, onSaved }: DoctorModalProps) {
           {error && <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>}
           {!doctor && (
             <>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Username *</label>
+                <Input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} required minLength={3} />
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Email *</label>
                 <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
@@ -168,10 +173,10 @@ export default function AdminDoctorsPage() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-11 h-11 rounded-full gradient-primary flex items-center justify-center text-white font-bold shadow-md shadow-blue-500/20">
-                        {doc.user?.full_name?.charAt(0)}
+                        {doc.full_name?.charAt(0)}
                       </div>
                       <div>
-                        <CardTitle className="text-sm">{doc.user?.full_name}</CardTitle>
+                        <CardTitle className="text-sm">{doc.full_name}</CardTitle>
                         <p className="text-[11px] text-slate-400">{doc.specialization}</p>
                       </div>
                     </div>
@@ -190,7 +195,7 @@ export default function AdminDoctorsPage() {
                 <CardContent className="pt-0 space-y-2 text-xs text-slate-400">
                   <p className="flex items-center gap-1.5">✉️ {doc.user?.email}</p>
                   <p className="flex items-center gap-1.5">📋 SIP: {doc.sip_number}</p>
-                  {doc.user?.phone && <p className="flex items-center gap-1.5">📞 {doc.user.phone}</p>}
+                  {doc.phone && <p className="flex items-center gap-1.5">📞 {doc.phone}</p>}
                 </CardContent>
               </Card>
             </div>

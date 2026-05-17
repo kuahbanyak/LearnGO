@@ -44,6 +44,7 @@ func Migrate(db *gorm.DB) {
 	log.Println("Running database migrations...")
 
 	err := db.AutoMigrate(
+		&entity.Role{},
 		&entity.User{},
 		&entity.Patient{},
 		&entity.Doctor{},

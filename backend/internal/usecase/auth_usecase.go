@@ -24,25 +24,38 @@ type AuthUsecase interface {
 type authUsecase struct {
 	userRepo    repository.UserRepository
 	patientRepo repository.PatientRepository
+	roleRepo    repository.RoleRepository
 	db          *gorm.DB
 }
 
-func NewAuthUsecase(userRepo repository.UserRepository, patientRepo repository.PatientRepository, db *gorm.DB) AuthUsecase {
+func NewAuthUsecase(userRepo repository.UserRepository, patientRepo repository.PatientRepository, roleRepo repository.RoleRepository, db *gorm.DB) AuthUsecase {
 	return &authUsecase{
 		userRepo:    userRepo,
 		patientRepo: patientRepo,
+		roleRepo:    roleRepo,
 		db:          db,
 	}
 }
 
 func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
-	logger.Info("Registration attempt", zap.String("email", req.Email))
+	logger.Info("Registration attempt", zap.String("email", req.Email), zap.String("username", req.Username))
 
-	// Check email unique (before transaction)
 	existing, _ := u.userRepo.FindByEmail(req.Email)
 	if existing != nil {
 		logger.Warn("Registration failed: duplicate email", zap.String("email", req.Email))
 		return nil, apperrors.NewDuplicateError("email already registered")
+	}
+
+	existing, _ = u.userRepo.FindByUsername(req.Username)
+	if existing != nil {
+		logger.Warn("Registration failed: duplicate username", zap.String("username", req.Username))
+		return nil, apperrors.NewDuplicateError("username already taken")
+	}
+
+	patientRole, err := u.roleRepo.FindByName("Patient")
+	if err != nil {
+		logger.Error("Failed to find patient role", zap.Error(err))
+		return nil, apperrors.NewInternalError("failed to find patient role")
 	}
 
 	hash, err := utils.HashPassword(req.Password)
@@ -57,7 +70,6 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		nikPtr = &req.NIK
 	}
 
-	// Start database transaction for atomic user + patient creation
 	tx := u.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -66,18 +78,12 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		}
 	}()
 
-	// Create user within transaction
 	user := &entity.User{
 		ID:           userID,
+		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: hash,
-		Role:         entity.RolePatient,
-		FullName:     req.FullName,
-		Phone:        req.Phone,
-		NIK:          nikPtr,
-		Gender:       req.Gender,
-		Address:      req.Address,
-		BloodType:    req.BloodType,
+		RoleID:       patientRole.ID,
 		IsActive:     true,
 	}
 
@@ -87,10 +93,15 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		return nil, apperrors.NewInternalError("failed to create user")
 	}
 
-	// Create patient profile within transaction
 	patient := &entity.Patient{
-		ID:     uuid.New(),
-		UserID: userID,
+		ID:        uuid.New(),
+		UserID:    userID,
+		FullName:  req.FullName,
+		Phone:     req.Phone,
+		NIK:       nikPtr,
+		Gender:    entity.Gender(req.Gender),
+		Address:   req.Address,
+		BloodType: entity.BloodType(req.BloodType),
 	}
 
 	if err := tx.Create(patient).Error; err != nil {
@@ -99,42 +110,43 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		return nil, apperrors.NewInternalError("failed to create patient profile")
 	}
 
-	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		logger.Error("Failed to commit registration transaction", zap.Error(err))
 		return nil, apperrors.NewInternalError("failed to complete registration")
 	}
 
+	user.Role = patientRole
+	user.Patient = patient
 	logger.Info("Registration successful", zap.String("user_id", userID.String()), zap.String("email", req.Email))
 	return user, nil
 }
 
 func (u *authUsecase) Login(req *dto.LoginRequest, jwtExpiryHours int) (string, *entity.User, error) {
-	logger.Info("Login attempt", zap.String("email", req.Email))
+	logger.Info("Login attempt", zap.String("login", req.Login))
 
-	user, err := u.userRepo.FindByEmail(req.Email)
+	user, err := u.userRepo.FindByLogin(req.Login)
 	if err != nil {
-		logger.Warn("Login failed: user not found", zap.String("email", req.Email))
-		return "", nil, apperrors.NewUnauthorizedError("invalid email or password")
+		logger.Warn("Login failed: user not found", zap.String("login", req.Login))
+		return "", nil, apperrors.NewUnauthorizedError("invalid username/email or password")
 	}
 
 	if !user.IsActive {
-		logger.Warn("Login failed: account deactivated", zap.String("email", req.Email))
+		logger.Warn("Login failed: account deactivated", zap.String("login", req.Login))
 		return "", nil, apperrors.NewUnauthorizedError("account is deactivated")
 	}
 
 	if !utils.CheckPassword(user.PasswordHash, req.Password) {
-		logger.Warn("Login failed: invalid password", zap.String("email", req.Email))
-		return "", nil, apperrors.NewUnauthorizedError("invalid email or password")
+		logger.Warn("Login failed: invalid password", zap.String("login", req.Login))
+		return "", nil, apperrors.NewUnauthorizedError("invalid username/email or password")
 	}
 
-	token, err := utils.GenerateToken(user.ID.String(), user.Email, string(user.Role), jwtExpiryHours)
+	token, err := utils.GenerateToken(user.ID.String(), user.Email, user.GetRoleName(), jwtExpiryHours)
 	if err != nil {
 		logger.Error("Failed to generate token", zap.Error(err), zap.String("user_id", user.ID.String()))
 		return "", nil, apperrors.NewInternalError("failed to generate token")
 	}
 
-	logger.Info("Login successful", zap.String("user_id", user.ID.String()), zap.String("email", req.Email))
+	logger.Info("Login successful", zap.String("user_id", user.ID.String()), zap.String("login", req.Login))
 	return token, user, nil
 }
 
@@ -154,30 +166,40 @@ func (u *authUsecase) UpdateProfile(userID uuid.UUID, req *dto.UpdateProfileRequ
 		return nil, apperrors.NewNotFoundError("user not found")
 	}
 
-	if req.FullName != "" {
-		user.FullName = req.FullName
-	}
-	if req.Phone != "" {
-		user.Phone = req.Phone
-	}
-	if req.NIK != "" {
-		user.NIK = &req.NIK
-	}
-	if req.Gender != "" {
-		user.Gender = req.Gender
-	}
-	if req.Address != "" {
-		user.Address = req.Address
-	}
-	if req.BloodType != "" {
-		user.BloodType = req.BloodType
+	if !entity.IsPatient(user) || user.Patient == nil {
+		logger.Warn("Update profile failed: not a patient", zap.String("user_id", userID.String()))
+		return nil, apperrors.NewInternalError("only patient profile can be updated")
 	}
 
-	if err := u.userRepo.Update(user); err != nil {
-		logger.Error("Failed to update profile", zap.Error(err), zap.String("user_id", userID.String()))
+	patient := user.Patient
+	if req.FullName != "" {
+		patient.FullName = req.FullName
+	}
+	if req.Phone != "" {
+		patient.Phone = req.Phone
+	}
+	if req.NIK != "" {
+		patient.NIK = &req.NIK
+	}
+	if req.Gender != "" {
+		patient.Gender = entity.Gender(req.Gender)
+	}
+	if req.Address != "" {
+		patient.Address = req.Address
+	}
+	if req.BloodType != "" {
+		patient.BloodType = entity.BloodType(req.BloodType)
+	}
+	if req.Allergies != "" {
+		patient.Allergies = req.Allergies
+	}
+
+	if err := u.patientRepo.Update(patient); err != nil {
+		logger.Error("Failed to update patient profile", zap.Error(err), zap.String("user_id", userID.String()))
 		return nil, apperrors.NewInternalError("failed to update profile")
 	}
 
+	user.Patient = patient
 	logger.Info("Profile updated", zap.String("user_id", userID.String()))
 	return user, nil
 }

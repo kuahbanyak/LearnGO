@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { Heart, Loader2, ArrowRight, User, Mail, Phone, Lock } from 'lucide-react'
+import { Heart, Loader2, ArrowRight, User, Mail, Phone, Lock, AtSign } from 'lucide-react'
 import { authApi } from '@/api/auth'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,7 @@ export default function RegisterPage() {
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const [form, setForm] = useState({
-    email: '', password: '', full_name: '', phone: ''
+    username: '', email: '', password: '', full_name: '', phone: ''
   })
 
   const mutation = useMutation({
@@ -36,6 +36,7 @@ export default function RegisterPage() {
 
   const fields = [
     { label: 'Nama Lengkap', field: 'full_name', type: 'text', placeholder: 'John Doe', icon: User, required: true },
+    { label: 'Username', field: 'username', type: 'text', placeholder: 'johndoe', icon: AtSign, required: true },
     { label: 'Email', field: 'email', type: 'email', placeholder: 'email@example.com', icon: Mail, required: true },
     { label: 'No. Telepon', field: 'phone', type: 'tel', placeholder: '08xxxxxxxxxx', icon: Phone, required: false },
     { label: 'Password', field: 'password', type: 'password', placeholder: '••••••••', icon: Lock, required: true },

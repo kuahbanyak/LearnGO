@@ -95,8 +95,8 @@ func (h *ExportHandler) exportPDF(c *gin.Context, appointments []entity.Appointm
 
 		pdf.CellFormat(colWidths[0], 7, fmt.Sprintf("%d", i+1), "1", 0, "C", false, 0, "")
 		pdf.CellFormat(colWidths[1], 7, fmt.Sprintf("%d", apt.QueueNumber), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colWidths[2], 7, apt.Patient.User.FullName, "1", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[3], 7, apt.Doctor.User.FullName, "1", 0, "L", false, 0, "")
+		pdf.CellFormat(colWidths[2], 7, apt.Patient.FullName, "1", 0, "L", false, 0, "")
+		pdf.CellFormat(colWidths[3], 7, apt.Doctor.FullName, "1", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[4], 7, apt.AppointmentDate.Format("2006-01-02"), "1", 0, "C", false, 0, "")
 		if apt.Schedule != nil {
 			pdf.CellFormat(colWidths[5], 7, fmt.Sprintf("%s-%s", apt.Schedule.StartTime, apt.Schedule.EndTime), "1", 0, "C", false, 0, "")

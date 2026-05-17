@@ -10,6 +10,7 @@ import (
 // ========================
 
 type RegisterRequest struct {
+	Username  string `json:"username" binding:"required,min=3"`
 	Email     string `json:"email" binding:"required,email"`
 	Password  string `json:"password" binding:"required,min=8"`
 	FullName  string `json:"full_name" binding:"required"`
@@ -45,7 +46,7 @@ func (r *RegisterRequest) Validate() error {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
+	Login    string `json:"login" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -55,12 +56,14 @@ type LoginResponse struct {
 }
 
 type UpdateProfileRequest struct {
-	FullName  string `json:"full_name"`
-	Phone     string `json:"phone"`
-	NIK       string `json:"nik"`
-	Gender    string `json:"gender"`
-	Address   string `json:"address"`
-	BloodType string `json:"blood_type"`
+	FullName    string `json:"full_name"`
+	Phone       string `json:"phone"`
+	NIK         string `json:"nik"`
+	DateOfBirth string `json:"date_of_birth"`
+	Gender      string `json:"gender"`
+	Address     string `json:"address"`
+	BloodType   string `json:"blood_type"`
+	Allergies   string `json:"allergies"`
 }
 
 // ========================
@@ -68,8 +71,10 @@ type UpdateProfileRequest struct {
 // ========================
 
 type UpdatePatientRequest struct {
+	FullName    string `json:"full_name"`
+	Phone       string `json:"phone"`
 	NIK         string `json:"nik"`
-	DateOfBirth string `json:"date_of_birth"` // "YYYY-MM-DD"
+	DateOfBirth string `json:"date_of_birth"`
 	Gender      string `json:"gender"`
 	Address     string `json:"address"`
 	BloodType   string `json:"blood_type"`

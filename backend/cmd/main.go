@@ -5,7 +5,6 @@ import (
 
 	"mediqueue/config"
 	"mediqueue/infrastructure/database"
-	"mediqueue/internal/entity"
 	"mediqueue/internal/handler"
 	"mediqueue/internal/middleware"
 	"mediqueue/internal/repository"
@@ -66,11 +65,12 @@ func main() {
 	ratingRepo := repository.NewRatingRepository(db)
 	checkInTokenRepo := repository.NewCheckInTokenRepository(db)
 	symptomScreeningRepo := repository.NewSymptomScreeningRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
 
 	// Initialize use cases
-	authUC := usecase.NewAuthUsecase(userRepo, patientRepo, db)
+	authUC := usecase.NewAuthUsecase(userRepo, patientRepo, roleRepo, db)
 	patientUC := usecase.NewPatientUsecase(patientRepo)
-	doctorUC := usecase.NewDoctorUsecase(doctorRepo, userRepo)
+	doctorUC := usecase.NewDoctorUsecase(doctorRepo, userRepo, roleRepo)
 	scheduleUC := usecase.NewScheduleUsecase(scheduleRepo, doctorRepo)
 	appointmentUC := usecase.NewAppointmentUsecase(appointmentRepo, scheduleRepo, patientRepo, doctorRepo, db)
 	medRecordUC := usecase.NewMedicalRecordUsecase(medRecordRepo, appointmentRepo, doctorRepo)
@@ -148,7 +148,7 @@ func main() {
 
 	// ── Admin only ──
 	adminOnly := protected.Group("/")
-	adminOnly.Use(middleware.RequireRole(entity.RoleAdmin))
+	adminOnly.Use(middleware.RequireRole("Admin"))
 	{
 		// Doctor management
 		adminOnly.POST("/doctors", doctorH.Create)
@@ -181,7 +181,7 @@ func main() {
 
 	// ── Admin or Doctor ──
 	adminOrDoctor := protected.Group("/")
-	adminOrDoctor.Use(middleware.RequireRole(entity.RoleAdmin, entity.RoleDoctor))
+	adminOrDoctor.Use(middleware.RequireRole("Admin", "Doctor"))
 	{
 		adminOrDoctor.GET("/patients", patientH.GetAll)
 		adminOrDoctor.GET("/patients/:id", patientH.GetByID)
@@ -189,7 +189,7 @@ func main() {
 
 	// ── Doctor routes ──
 	doctorOnly := protected.Group("/")
-	doctorOnly.Use(middleware.RequireRole(entity.RoleDoctor))
+	doctorOnly.Use(middleware.RequireRole("Doctor"))
 	{
 		doctorOnly.GET("/appointments/today", appointmentH.GetTodayQueue)
 		doctorOnly.PATCH("/appointments/:id/status", appointmentH.UpdateStatus)
@@ -200,7 +200,7 @@ func main() {
 
 	// ── Patient routes ──
 	patientOnly := protected.Group("/")
-	patientOnly.Use(middleware.RequireRole(entity.RolePatient))
+	patientOnly.Use(middleware.RequireRole("Patient"))
 	patientOnly.Use(middleware.RequirePatientProfile(patientRepo))
 	{
 		patientOnly.POST("/appointments", appointmentH.Book)
@@ -233,7 +233,7 @@ func main() {
 	protected.GET("/appointments/:id/symptoms", symptomScreeningH.GetByAppointment)
 
 	// Schedule toggle: admin + doctor
-	protected.Use(middleware.RequireRole(entity.RoleAdmin, entity.RoleDoctor)).
+	protected.Use(middleware.RequireRole("Admin", "Doctor")).
 		PATCH("/schedules/:id/toggle", scheduleH.Toggle)
 
 	// Health check

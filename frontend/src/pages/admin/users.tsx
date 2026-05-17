@@ -12,12 +12,8 @@ import type { User } from '@/types'
 function UserEditModal({ user, onClose }: { user: User; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState({
-    full_name: user.full_name || '',
-    phone: user.phone || '',
-    nik: user.nik || '',
-    gender: user.gender || '',
-    address: user.address || '',
-    blood_type: user.blood_type || '',
+    username: user.username || '',
+    email: user.email || '',
     is_active: user.is_active
   })
 
@@ -42,42 +38,12 @@ function UserEditModal({ user, onClose }: { user: User; onClose: () => void }) {
         </div>
         <div className="px-6 py-5 space-y-4 overflow-y-auto">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Nama Lengkap</label>
-            <Input value={formData.full_name} onChange={e => setFormData({ ...formData, full_name: e.target.value })} />
+            <label className="text-sm font-medium">Username</label>
+            <Input value={formData.username} onChange={e => setFormData({ ...formData, username: e.target.value })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Nomor HP</label>
-            <Input value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">NIK</label>
-            <Input value={formData.nik} onChange={e => setFormData({ ...formData, nik: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Jenis Kelamin</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value })}>
-                <option value="">Pilih</option>
-                <option value="male">Laki-laki</option>
-                <option value="female">Perempuan</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Golongan Darah</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={formData.blood_type} onChange={e => setFormData({ ...formData, blood_type: e.target.value })}>
-                <option value="">Pilih</option>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="AB">AB</option>
-                <option value="O">O</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Alamat</label>
-            <Input value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} />
+            <label className="text-sm font-medium">Email</label>
+            <Input value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
           </div>
           <div className="flex items-center gap-2 pt-2">
             <input type="checkbox" id="is_active" checked={formData.is_active} onChange={e => setFormData({ ...formData, is_active: e.target.checked })} className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary" />
@@ -94,6 +60,12 @@ function UserEditModal({ user, onClose }: { user: User; onClose: () => void }) {
       </div>
     </div>
   )
+}
+
+function getDisplayName(user: User): string {
+  if (user.patient?.full_name) return user.patient.full_name
+  if (user.doctor?.full_name) return user.doctor.full_name
+  return user.username
 }
 
 export default function AdminUsersPage() {
@@ -167,10 +139,10 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-xs shrink-0">
-                            {u.full_name?.charAt(0)}
+                            {getDisplayName(u)?.charAt(0)}
                           </div>
                           <div>
-                            <p className="font-medium text-slate-900">{u.full_name}</p>
+                            <p className="font-medium text-slate-900">{getDisplayName(u)}</p>
                             <p className="text-xs text-muted-foreground">{u.email}</p>
                           </div>
                         </div>
@@ -180,7 +152,7 @@ export default function AdminUsersPage() {
                           u.role === 'admin' ? 'border-red-200 text-red-600 bg-red-50' :
                             u.role === 'doctor' ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : ''
                         }>
-                          {u.role.toUpperCase()}
+                          {u.role?.toUpperCase()}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
@@ -198,7 +170,7 @@ export default function AdminUsersPage() {
                             <Edit className="size-4" />
                           </button>
                           <button
-                            onClick={() => handleDelete(u.id, u.full_name)}
+                            onClick={() => handleDelete(u.id, getDisplayName(u))}
                             disabled={deleteMutation.isPending}
                             className="p-1.5 rounded text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
                             title="Hapus pengguna"
@@ -214,7 +186,6 @@ export default function AdminUsersPage() {
             </div>
           )}
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t">
               <p className="text-xs text-muted-foreground">

@@ -1,13 +1,21 @@
+export interface Role {
+  id: string
+  role_name: string
+}
+
+export type UserRole = 'admin' | 'doctor' | 'patient'
+
 export interface User {
   id: string
+  username: string
   email: string
-  role: 'admin' | 'doctor' | 'patient'
-  full_name: string
-  phone: string
+  full_name?: string
+  phone?: string
   nik?: string
-  gender?: string
+  gender?: 'male' | 'female'
   address?: string
-  blood_type?: string
+  blood_type?: 'A' | 'B' | 'AB' | 'O'
+  role: UserRole
   is_active: boolean
   patient?: Patient
   doctor?: Doctor
@@ -16,7 +24,9 @@ export interface User {
 export interface Patient {
   id: string
   user_id: string
-  nik: string
+  full_name: string
+  phone: string
+  nik?: string
   date_of_birth?: string
   gender?: 'male' | 'female'
   address?: string
@@ -28,6 +38,8 @@ export interface Patient {
 export interface Doctor {
   id: string
   user_id: string
+  full_name: string
+  phone: string
   specialization: string
   sip_number: string
   user?: User

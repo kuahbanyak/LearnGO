@@ -13,9 +13,29 @@ import (
 
 func Seed(db *gorm.DB, cfg *config.Config) {
 	log.Println("Running database seeder...")
+	seedRoles(db)
 	seedAdmin(db, cfg)
 	seedDemoDoctor(db)
 	log.Println("Seeding completed")
+}
+
+func seedRoles(db *gorm.DB) {
+	roles := []string{"Admin", "Doctor", "Patient"}
+	for _, roleName := range roles {
+		var count int64
+		db.Model(&entity.Role{}).Where("role_name = ?", roleName).Count(&count)
+		if count == 0 {
+			role := entity.Role{
+				ID:       uuid.New(),
+				RoleName: roleName,
+			}
+			if err := db.Create(&role).Error; err != nil {
+				log.Printf("Failed to seed role %s: %v", roleName, err)
+			} else {
+				log.Printf("Role seeded: %s", roleName)
+			}
+		}
+	}
 }
 
 func seedAdmin(db *gorm.DB, cfg *config.Config) {
@@ -23,6 +43,12 @@ func seedAdmin(db *gorm.DB, cfg *config.Config) {
 	db.Model(&entity.User{}).Where("email = ?", cfg.AdminEmail).Count(&count)
 	if count > 0 {
 		log.Println("Admin already seeded, skipping...")
+		return
+	}
+
+	var adminRole entity.Role
+	if err := db.Where("role_name = ?", "Admin").First(&adminRole).Error; err != nil {
+		log.Printf("Failed to find admin role: %v", err)
 		return
 	}
 
@@ -34,10 +60,10 @@ func seedAdmin(db *gorm.DB, cfg *config.Config) {
 
 	admin := entity.User{
 		ID:           uuid.New(),
+		Username:     "admin",
 		Email:        cfg.AdminEmail,
 		PasswordHash: hash,
-		Role:         entity.RoleAdmin,
-		FullName:     cfg.AdminName,
+		RoleID:       adminRole.ID,
 		IsActive:     true,
 	}
 
@@ -57,14 +83,19 @@ func seedDemoDoctor(db *gorm.DB) {
 		return
 	}
 
+	var doctorRole entity.Role
+	if err := db.Where("role_name = ?", "Doctor").First(&doctorRole).Error; err != nil {
+		log.Printf("Failed to find doctor role: %v", err)
+		return
+	}
+
 	hash, _ := utils.HashPassword("Doctor@123")
 	doctorUser := entity.User{
 		ID:           uuid.New(),
+		Username:     "drbudi",
 		Email:        "doctor@mediqueue.com",
 		PasswordHash: hash,
-		Role:         entity.RoleDoctor,
-		FullName:     "Dr. Budi Santoso",
-		Phone:        "081234567890",
+		RoleID:       doctorRole.ID,
 		IsActive:     true,
 	}
 	db.Create(&doctorUser)
@@ -72,12 +103,13 @@ func seedDemoDoctor(db *gorm.DB) {
 	doctor := entity.Doctor{
 		ID:             uuid.New(),
 		UserID:         doctorUser.ID,
+		FullName:       "Dr. Budi Santoso",
+		Phone:          "081234567890",
 		Specialization: "Dokter Umum",
 		SIPNumber:      "SIP-001-2024",
 	}
 	db.Create(&doctor)
 
-	// Monday, Wednesday & Friday schedule
 	for _, day := range []int{1, 3, 5} {
 		schedule := entity.DoctorSchedule{
 			ID:         uuid.New(),

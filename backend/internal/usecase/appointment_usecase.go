@@ -75,8 +75,8 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 	}
 
 	// Validate complete user profile
-	if patient.User == nil || patient.User.NIK == nil || *patient.User.NIK == "" || patient.User.Phone == "" || patient.User.FullName == "" || patient.User.Gender == "" || patient.User.Address == "" || patient.User.BloodType == "" {
-		return nil, errors.New("please complete your user profile (NIK, Phone, Full Name, Gender, Address, Blood Type) before booking")
+	if patient.FullName == "" || patient.Phone == "" || patient.NIK == nil || *patient.NIK == "" || patient.Gender == "" || patient.Address == "" || patient.BloodType == "" {
+		return nil, errors.New("please complete your profile (Full Name, Phone, NIK, Gender, Address, Blood Type) before booking")
 	}
 
 	// Validate schedule exists and matches doctor + day
@@ -232,7 +232,7 @@ func (u *appointmentUsecase) Cancel(id uuid.UUID, actorRole string, actorUserID 
 	}
 
 	// Patient can only cancel their own
-	if actorRole == string(entity.RolePatient) {
+	if actorRole == "Patient" {
 		// Get patient profile (with auto-create fallback)
 		patient, err := GetOrCreatePatient(u.patientRepo, actorUserID)
 		if err != nil {
