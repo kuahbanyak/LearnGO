@@ -3,7 +3,7 @@ export interface Role {
   role_name: string
 }
 
-export type UserRole = 'admin' | 'doctor' | 'patient'
+export type UserRole = 'Admin' | 'Doctor' | 'Patient'
 
 export interface User {
   id: string
@@ -15,7 +15,7 @@ export interface User {
   gender?: 'male' | 'female'
   address?: string
   blood_type?: 'A' | 'B' | 'AB' | 'O'
-  role: UserRole
+  role?: Role
   is_active: boolean
   patient?: Patient
   doctor?: Doctor

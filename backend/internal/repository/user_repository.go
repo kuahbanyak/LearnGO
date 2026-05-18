@@ -59,7 +59,7 @@ func (r *userRepository) FindByUsername(username string) (*entity.User, error) {
 
 func (r *userRepository) FindByLogin(login string) (*entity.User, error) {
 	var user entity.User
-	err := r.db.Where("email = ? OR username = ?", login, login).First(&user).Error
+	err := r.db.Preload("Role").Preload("Patient").Preload("Doctor").Where("email = ? OR username = ?", login, login).First(&user).Error
 	if err != nil {
 		return nil, err
 	}

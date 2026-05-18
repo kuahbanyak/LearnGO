@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/auth-store'
 import { Toaster } from '@/components/ui/toaster'
 import { ErrorBoundary } from '@/components/shared/error-boundary'
 import { lazy, Suspense } from 'react'
+import { getUserRole } from '@/lib/utils'
 
 // Eager load critical components
 import LoginPage from '@/pages/auth/login'
@@ -47,12 +48,13 @@ const queryClient = new QueryClient({
 function RootRedirect() {
   const { isAuthenticated, user } = useAuthStore()
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  const role = getUserRole(user)
   const redirectMap = {
     admin: '/admin/dashboard',
     doctor: '/doctor/dashboard',
     patient: '/patient/dashboard',
   }
-  return <Navigate to={redirectMap[user?.role ?? 'patient']} replace />
+  return <Navigate to={redirectMap[role]} replace />
 }
 
 // Loading fallback component

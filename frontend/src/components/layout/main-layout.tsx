@@ -6,7 +6,7 @@ import { useThemeStore } from '@/store/theme-store'
 import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { useQuery } from '@tanstack/react-query'
-import { cn } from '@/lib/utils'
+import { cn, getUserRole } from '@/lib/utils'
 import { Bell, Search, X, ChevronRight, Sun, Moon } from 'lucide-react'
 
 // Map paths to readable breadcrumbs
@@ -58,6 +58,7 @@ export default function MainLayout() {
   const location = useLocation()
   const { user } = useAuthStore()
   const { isDark, toggle: toggleTheme } = useThemeStore()
+  const userRole = getUserRole(user)
 
   // Polling to notify doctor if there's a new patient
   const previousQueueLengthRef = useRef<number | null>(null)
@@ -66,18 +67,18 @@ export default function MainLayout() {
     queryFn: () => appointmentApi.getTodayQueue(),
     refetchInterval: 10000,
     staleTime: 5000,
-    enabled: user?.role === 'doctor',
+    enabled: userRole === 'doctor',
   })
 
   useEffect(() => {
-    if (user?.role === 'doctor' && queueData?.data?.data) {
+    if (userRole === 'doctor' && queueData?.data?.data) {
       const currentLength = queueData.data.data.length
       if (previousQueueLengthRef.current !== null && currentLength > previousQueueLengthRef.current) {
         toast.info('Pasien Baru', 'Ada pasien baru yang mendaftar antrian hari ini!')
       }
       previousQueueLengthRef.current = currentLength
     }
-  }, [queueData, user?.role])
+  }, [queueData, userRole])
 
   // Open search input and focus
   useEffect(() => {
@@ -111,9 +112,9 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [])
 
-  const roleColor = user?.role === 'admin'
+  const roleColor = userRole === 'admin'
     ? 'from-blue-500 to-indigo-600'
-    : user?.role === 'doctor'
+    : userRole === 'doctor'
     ? 'from-emerald-500 to-teal-600'
     : 'from-cyan-500 to-blue-600'
 

@@ -99,7 +99,7 @@ function ScheduleModal({ schedule, onClose, onSaved }: ScheduleModalProps) {
                 <option value="">Pilih dokter...</option>
                 {doctors.map(d => (
                   <option key={d.id} value={d.id}>
-                    {d.user?.full_name} — {d.specialization}
+                    {d.full_name} — {d.specialization}
                   </option>
                 ))}
               </select>
@@ -180,7 +180,7 @@ export default function AdminSchedulesPage() {
 
   // Group by doctor
   const byDoctor = schedules.reduce<Record<string, DoctorSchedule[]>>((acc, s) => {
-    const key = s.doctor?.user?.full_name ?? s.doctor_id
+    const key = s.doctor?.full_name ?? s.doctor_id
     if (!acc[key]) acc[key] = []
     acc[key].push(s)
     return acc

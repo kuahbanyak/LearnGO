@@ -149,10 +149,10 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant="outline" className={
-                          u.role === 'admin' ? 'border-red-200 text-red-600 bg-red-50' :
-                            u.role === 'doctor' ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : ''
+                          u.role?.role_name?.toLowerCase() === 'admin' ? 'border-red-200 text-red-600 bg-red-50' :
+                            u.role?.role_name?.toLowerCase() === 'doctor' ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : ''
                         }>
-                          {u.role?.toUpperCase()}
+                          {u.role?.role_name?.toUpperCase()}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">

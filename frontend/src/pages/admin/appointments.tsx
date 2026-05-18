@@ -68,15 +68,15 @@ export default function AdminAppointmentsPage() {
       const params = new URLSearchParams()
       if (date) params.append('start_date', date)
       if (status) params.append('status', status)
-      
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'}/export/appointments?${params.toString()}&format=pdf`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('mediqueue-auth') ? JSON.parse(localStorage.getItem('mediqueue-auth')!).state?.token : ''}`,
         },
       })
-      
+
       if (!response.ok) throw new Error('Export failed')
-      
+
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -86,7 +86,7 @@ export default function AdminAppointmentsPage() {
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      
+
       toast.success('PDF berhasil diunduh')
     } catch (error) {
       toast.error('Gagal mengekspor PDF')
@@ -123,7 +123,7 @@ export default function AdminAppointmentsPage() {
 
       {/* Filters Area */}
       <Card className="border-0 shadow-sm bg-white/50 backdrop-blur-sm">
-        <CardContent className="p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <CardContent className="p-2 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="relative">
               <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
@@ -145,7 +145,7 @@ export default function AdminAppointmentsPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto pb-1 sm:pb-0 scrollbar-none">
             {STATUS_OPTIONS.map(opt => {
               const Icon = opt.icon;
               const isActive = status === opt.value;
