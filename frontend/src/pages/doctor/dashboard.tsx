@@ -1,167 +1,354 @@
-import { useQuery } from '@tanstack/react-query'
-import { Calendar, CheckCircle, Clock, UserCheck, ArrowRight, Activity, Stethoscope } from 'lucide-react'
+import { useRef, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Calendar,
+  Clock,
+  CheckCircle,
+  Timer,
+  Phone,
+  ArrowRight,
+  Star,
+} from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
+import { ratingsApi } from '@/api/ratings'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { StatCard } from '@/components/shared/stat-card'
+import { PageHeader } from '@/components/shared/page-header'
+import StarRating from '@/components/shared/star-rating'
+import { useStaggerReveal } from '@/hooks/use-stagger-reveal'
+import { useRealtimeSync, type RealtimeMessage } from '@/hooks/use-realtime-sync'
+import { queryKeys, queryConfig } from '@/lib/query-keys'
 import { useAuthStore } from '@/store/auth-store'
-import { formatDate } from '@/lib/utils'
-import { Link } from 'react-router-dom'
+import type { DoctorDashboardStats, Appointment, CheckinEvent } from '@/types'
+
+// ── Helpers ──
+
+function formatTime(timeStr?: string): string {
+  if (!timeStr) return '—'
+  return timeStr.slice(0, 5)
+}
+
+// ── Main Component ──
 
 export default function DoctorDashboard() {
   const { user } = useAuthStore()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const statsGridRef = useRef<HTMLDivElement>(null)
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['doctor-stats'],
+  useStaggerReveal(statsGridRef)
+
+  const doctorId = user?.doctor?.id ?? ''
+
+  // ── Data Fetching ──
+
+  const {
+    data: statsData,
+    isLoading: statsLoading,
+  } = useQuery({
+    queryKey: queryKeys.dashboard.doctor(),
     queryFn: () => dashboardApi.getDoctorStats(),
-    refetchInterval: 15000,
-    staleTime: 5000,
+    staleTime: queryConfig.dashboard.staleTime,
+    gcTime: queryConfig.dashboard.gcTime,
   })
 
-  const { data: queueData, isLoading: queueLoading } = useQuery({
-    queryKey: ['today-queue'],
+  const {
+    data: queueData,
+    isLoading: queueLoading,
+  } = useQuery({
+    queryKey: queryKeys.appointments.todayQueue(),
     queryFn: () => appointmentApi.getTodayQueue(),
-    refetchInterval: 10000,
-    staleTime: 5000,
+    staleTime: queryConfig.dashboard.staleTime,
+    gcTime: queryConfig.dashboard.gcTime,
   })
 
-  const stats = statsData?.data?.data
-  const queue = queueData?.data?.data ?? []
+  const {
+    data: ratingData,
+    isLoading: ratingLoading,
+  } = useQuery({
+    queryKey: queryKeys.ratings.summary(doctorId),
+    queryFn: () => ratingsApi.getDoctorSummary(doctorId),
+    staleTime: queryConfig.ratings.staleTime,
+    gcTime: queryConfig.ratings.gcTime,
+    enabled: !!doctorId,
+  })
 
-  const statCards = [
-    { title: 'Total Antrian Hari Ini', value: stats?.today_queue ?? 0, icon: Calendar, gradient: 'gradient-primary', shadow: 'shadow-blue-500/25' },
-    { title: 'Sedang Menunggu', value: stats?.waiting_now ?? 0, icon: Clock, gradient: 'bg-gradient-to-br from-amber-500 to-yellow-600', shadow: 'shadow-amber-500/25' },
-    { title: 'Sedang Ditangani', value: stats?.today_visits ?? 0, icon: UserCheck, gradient: 'gradient-warning', shadow: 'shadow-orange-500/25' },
-    { title: 'Selesai', value: stats?.completed_today ?? 0, icon: CheckCircle, gradient: 'gradient-success', shadow: 'shadow-emerald-500/25' },
-  ]
+  // ── Resolve Stats ──
+
+  const rawStats = statsData?.data?.data as Record<string, unknown> | undefined
+  const doctorStats: DoctorDashboardStats | undefined = rawStats
+    ? {
+        total_scheduled: (rawStats.total_scheduled as number) ?? (rawStats.today_queue as number) ?? 0,
+        checked_in_waiting: (rawStats.checked_in_waiting as number) ?? (rawStats.waiting_now as number) ?? 0,
+        completed_consultations: (rawStats.completed_consultations as number) ?? (rawStats.completed_today as number) ?? 0,
+        avg_consultation_duration_minutes: (rawStats.avg_consultation_duration_minutes as number) ?? 0,
+      }
+    : undefined
+
+  const queue: Appointment[] = queueData?.data?.data ?? []
+  const upcomingPatients = queue
+    .filter((a) => a.status === 'waiting')
+    .slice(0, 3)
+
+  const ratingSummary = ratingData?.data?.data
+
+  // ── Realtime Sync ──
+
+  const handleRealtimeMessage = useCallback(
+    (message: RealtimeMessage) => {
+      if (message.type === 'checkin') {
+        const event = message.data as CheckinEvent
+        // Only update if the check-in is for this doctor
+        if (!doctorId || event.doctor_id === doctorId) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.doctor() })
+          queryClient.invalidateQueries({ queryKey: queryKeys.appointments.todayQueue() })
+        }
+      }
+    },
+    [queryClient, doctorId]
+  )
+
+  const { connectionState } = useRealtimeSync({
+    channels: ['checkin'],
+    onMessage: handleRealtimeMessage,
+    refetchKeys: [[...queryKeys.dashboard.doctor()], [...queryKeys.appointments.todayQueue()]],
+  })
+
+  // ── Render ──
 
   return (
     <div className="space-y-6">
-      {/* Welcome Banner */}
-      <div className="relative overflow-hidden rounded-2xl p-6 sm:p-8 text-white"
-        style={{ background: 'linear-gradient(135deg, hsl(152 69% 35%) 0%, hsl(166 72% 35%) 50%, hsl(180 70% 32%) 100%)' }}>
-        <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/5 rounded-full blur-2xl" />
-        <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-white/5 rounded-full blur-2xl" />
-        <div className="relative z-10 flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <p className="text-emerald-100 text-sm mb-1">🩺 Selamat datang,</p>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{user?.full_name}</h1>
-            <p className="text-emerald-200 mt-2 text-sm">
-              {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </p>
-          </div>
-          <Button asChild className="bg-white text-emerald-700 hover:bg-white/90 border-0 rounded-xl shadow-lg font-semibold">
-            <Link to="/doctor/queue">
-              <Stethoscope className="size-4 mr-1.5" />
-              Mulai Praktik
-            </Link>
-          </Button>
+      {/* Page Header */}
+      <PageHeader
+        title="Dashboard Dokter"
+        subtitle={`Selamat datang, ${user?.full_name ?? 'Dokter'} — ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}
+        category="doctor"
+        actions={
+          connectionState === 'connected' ? (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)]"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--accent-success) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--accent-success) 20%, transparent)',
+              }}
+            >
+              <span
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: 'var(--accent-success)' }}
+              />
+              <span className="text-xs font-medium" style={{ color: 'var(--accent-success)' }}>
+                Live
+              </span>
+            </div>
+          ) : undefined
+        }
+      />
+
+      {/* 4 StatCards with doctor category color */}
+      <div
+        ref={statsGridRef}
+        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+        role="region"
+        aria-label="Metrik dashboard dokter"
+      >
+        <div className="stagger-item">
+          <StatCard
+            title="Jadwal Hari Ini"
+            value={statsLoading ? '—' : (doctorStats?.total_scheduled ?? 0)}
+            icon={Calendar}
+            category="doctor"
+            animate={true}
+          />
+        </div>
+        <div className="stagger-item">
+          <StatCard
+            title="Pasien Menunggu"
+            value={statsLoading ? '—' : (doctorStats?.checked_in_waiting ?? 0)}
+            icon={Clock}
+            category="doctor"
+            animate={true}
+          />
+        </div>
+        <div className="stagger-item">
+          <StatCard
+            title="Konsultasi Selesai"
+            value={statsLoading ? '—' : (doctorStats?.completed_consultations ?? 0)}
+            icon={CheckCircle}
+            category="doctor"
+            animate={true}
+          />
+        </div>
+        <div className="stagger-item">
+          <StatCard
+            title="Rata-rata Durasi"
+            value={statsLoading ? '—' : `${doctorStats?.avg_consultation_duration_minutes ?? 0} min`}
+            icon={Timer}
+            category="doctor"
+            animate={true}
+          />
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map(({ title, value, icon: Icon, gradient, shadow }, index) => (
-          <div key={title} className="stagger-item" style={{ animationDelay: `${index * 80}ms` }}>
-            <Card className="card-hover border-0 shadow-sm">
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-[13px] font-medium text-slate-500">{title}</p>
-                    {statsLoading ? (
-                      <div className="h-8 w-14 skeleton mt-2 rounded-lg" />
-                    ) : (
-                      <p className="text-2xl font-bold mt-1 text-slate-900 number-animate">{value}</p>
-                    )}
-                  </div>
-                  <div className={`p-2.5 rounded-xl ${gradient} shadow-lg ${shadow}`}>
-                    <Icon className="size-5 text-white" />
-                  </div>
+      {/* Two-column layout: Upcoming Patients + Rating Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Next 3 Upcoming Patients */}
+        <Card surface="raised" className="lg:col-span-2" padding="none">
+          <CardHeader className="px-6 pt-6 pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--category-doctor) 10%, transparent)' }}
+                >
+                  <Calendar className="size-4" style={{ color: 'var(--category-doctor)' }} />
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        ))}
-      </div>
-
-      {/* Today's Queue */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-50">
-              <Activity className="size-4 text-blue-500" />
+                Pasien Berikutnya
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/doctor/queue">
+                  Kelola Antrian <ArrowRight className="size-3 ml-1" />
+                </Link>
+              </Button>
             </div>
-            Antrian Hari Ini
-            {stats?.waiting_now !== undefined && stats.waiting_now > 0 && (
-              <span className="px-2.5 py-0.5 text-[11px] bg-amber-100 text-amber-700 rounded-full font-semibold">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1 dot-pulse" />
-                {stats.waiting_now} menunggu
-              </span>
+          </CardHeader>
+          <CardContent className="px-6 pb-6">
+            {queueLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3.5 rounded-[var(--radius-md)]">
+                    <div className="w-10 h-10 rounded-full skeleton" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 w-32 skeleton rounded" />
+                      <div className="h-3 w-24 skeleton rounded" />
+                    </div>
+                    <div className="h-8 w-20 skeleton rounded" />
+                  </div>
+                ))}
+              </div>
+            ) : upcomingPatients.length === 0 ? (
+              <div className="text-center py-10" style={{ color: 'var(--text-tertiary)' }}>
+                <Calendar className="size-12 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">Tidak ada pasien menunggu</p>
+                <p className="text-xs mt-1">Pasien akan muncul saat mereka check-in</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {upcomingPatients.map((appt) => (
+                  <div
+                    key={appt.id}
+                    className="flex items-center justify-between p-3.5 rounded-[var(--radius-md)] border transition-all"
+                    style={{
+                      borderColor: 'var(--surface-sunken)',
+                      backgroundColor: 'var(--surface-sunken)',
+                    }}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* Queue number badge */}
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-mono font-bold text-sm shrink-0"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--category-doctor), var(--accent-primary))',
+                          color: 'var(--text-inverse)',
+                          boxShadow: 'var(--shadow-sm)',
+                        }}
+                      >
+                        {appt.queue_number}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                          {appt.patient?.user?.full_name ?? appt.patient?.full_name ?? 'Pasien'}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                          {formatTime(appt.schedule?.start_time)} · Antrian #{appt.queue_number}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Quick-call action → navigate to queue page */}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => navigate('/doctor/queue')}
+                      aria-label={`Panggil ${appt.patient?.user?.full_name ?? 'pasien'}`}
+                    >
+                      <Phone className="size-3.5 mr-1.5" />
+                      Panggil
+                    </Button>
+                  </div>
+                ))}
+              </div>
             )}
-          </CardTitle>
-          <Button variant="outline" size="sm" asChild className="rounded-lg text-xs">
-            <Link to="/doctor/queue">
-              Kelola Antrian <ArrowRight className="size-3 ml-1" />
-            </Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {queueLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex items-center gap-3 p-3.5 rounded-xl">
-                  <div className="w-9 h-9 rounded-full skeleton" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3.5 w-28 skeleton rounded" />
-                    <div className="h-3 w-20 skeleton rounded" />
-                  </div>
-                  <div className="h-6 w-16 skeleton rounded-full" />
+          </CardContent>
+        </Card>
+
+        {/* Rating Summary Panel */}
+        <Card surface="raised" padding="none">
+          <CardHeader className="px-6 pt-6 pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div
+                className="p-2 rounded-[var(--radius-md)]"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--accent-warning) 10%, transparent)' }}
+              >
+                <Star className="size-4" style={{ color: 'var(--accent-warning)' }} />
+              </div>
+              Rating Anda
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 pb-6">
+            {ratingLoading ? (
+              <div className="space-y-4">
+                <div className="h-8 w-24 skeleton rounded" />
+                <div className="h-5 w-32 skeleton rounded" />
+                <div className="h-4 w-20 skeleton rounded" />
+              </div>
+            ) : ratingSummary ? (
+              <div className="space-y-4">
+                {/* Average rating display */}
+                <div className="flex items-baseline gap-3">
+                  <span
+                    className="text-4xl font-bold"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {(ratingSummary.average_score ?? 0).toFixed(1)}
+                  </span>
+                  <span
+                    className="text-sm"
+                    style={{ color: 'var(--text-tertiary)' }}
+                  >
+                    / 5.0
+                  </span>
                 </div>
-              ))}
-            </div>
-          ) : queue.length === 0 ? (
-            <div className="text-center py-10 text-slate-400">
-              <Calendar className="size-12 mx-auto mb-3 opacity-20" />
-              <p className="text-sm font-medium">Tidak ada antrian hari ini</p>
-              <p className="text-xs mt-1">Antrian akan muncul saat pasien mendaftar</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {queue.slice(0, 5).map((appt, index) => (
-                <div key={appt.id}
-                  className="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-slate-200 hover:shadow-sm transition-all stagger-item"
-                  style={{ animationDelay: `${index * 60}ms` }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shadow-md shadow-blue-500/20">
-                      {appt.queue_number}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{appt.patient?.user?.full_name}</p>
-                      <p className="text-[11px] text-slate-400">{formatDate(appt.appointment_date)}</p>
-                    </div>
-                  </div>
-                  <Badge variant={
-                    appt.status === 'waiting' ? 'secondary'
-                    : appt.status === 'in_progress' ? 'default'
-                    : appt.status === 'completed' ? 'outline'
-                    : 'destructive'
-                  } className="text-[11px]">
-                    {appt.status === 'waiting' ? 'Menunggu'
-                      : appt.status === 'in_progress' ? 'Ditangani'
-                      : appt.status === 'completed' ? 'Selesai' : 'Batal'}
-                  </Badge>
-                </div>
-              ))}
-              {queue.length > 5 && (
-                <p className="text-xs text-center text-slate-400 pt-2">
-                  Dan {queue.length - 5} antrian lainnya...
+
+                {/* Star rating component */}
+                <StarRating
+                  rating={ratingSummary.average_score ?? 0}
+                  size="lg"
+                />
+
+                {/* Rating count */}
+                <p
+                  className="text-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Berdasarkan{' '}
+                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {ratingSummary.total_ratings ?? 0}
+                  </span>{' '}
+                  penilaian (30 hari terakhir)
                 </p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            ) : (
+              <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
+                <Star className="size-10 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">Belum ada penilaian</p>
+                <p className="text-xs mt-1">Rating akan muncul setelah pasien memberikan penilaian</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

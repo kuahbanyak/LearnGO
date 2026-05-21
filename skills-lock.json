@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "frontend-design": {
+      "source": "mager/frontend-design",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "12846ce07a406b8159e8b340a7f46ae15e8c0bc9e6dd278d923785de211d4e71"
+    }
+  }
+}

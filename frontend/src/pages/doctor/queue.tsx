@@ -1,160 +1,557 @@
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, ChevronRight, CheckCircle, UserCheck, Clock, Users } from 'lucide-react'
+import {
+  ChevronRight,
+  CheckCircle,
+  UserCheck,
+  Clock,
+  Users,
+  MoreVertical,
+  XCircle,
+  RotateCcw,
+} from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import type { Appointment } from '@/types'
-import { useState } from 'react'
+import { PageHeader } from '@/components/shared/page-header'
+import { useRealtimeSync, type RealtimeMessage } from '@/hooks/use-realtime-sync'
+import { queryKeys, queryConfig } from '@/lib/query-keys'
 import { toast } from '@/hooks/use-toast'
+import type { Appointment } from '@/types'
 import MedicalRecordForm from './medical-record-form.tsx'
 
-/** Hitung estimasi waktu tunggu: asumsi 10 menit per pasien */
-function getEstimatedTime(queueNumber: number, currentInProgressQueue: number, startTime: string): string {
-  const waitingAhead = queueNumber - currentInProgressQueue - 1
-  if (waitingAhead <= 0) return 'Segera dipanggil'
-  const minutesAhead = waitingAhead * 10
+// ── Types ──
 
-  if (!startTime) return `~${minutesAhead} menit`
+type LaneStatus = 'waiting' | 'in_progress' | 'completed'
 
-  const [h, m] = startTime.split(':').map(Number)
-  const start = new Date()
-  start.setHours(h, m, 0, 0)
-  start.setMinutes(start.getMinutes() + minutesAhead)
-  return `~${start.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`
+interface PatientCardProps {
+  appointment: Appointment
+  lane: LaneStatus
+  onCallNext?: () => void
+  onMarkInConsultation?: () => void
+  onComplete?: () => void
+  onNoShow?: () => void
+  isAnimating?: boolean
 }
+
+// ── Helpers ──
+
+function formatScheduledTime(schedule?: { start_time?: string }): string {
+  if (!schedule?.start_time) return '—'
+  return schedule.start_time.slice(0, 5)
+}
+
+function getChiefComplaint(appointment: Appointment): string | undefined {
+  // Chief complaint may come from symptom screening or medical record
+  return (appointment as unknown as Record<string, unknown>).chief_complaint as string | undefined
+}
+
+// ── PatientCard Component ──
+
+function PatientCard({
+  appointment,
+  lane,
+  onMarkInConsultation,
+  onComplete,
+  onNoShow,
+  isAnimating,
+}: PatientCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
+
+  const chiefComplaint = getChiefComplaint(appointment)
+  const patientName = appointment.patient?.user?.full_name ?? appointment.patient?.full_name ?? 'Pasien'
+
+  return (
+    <div
+      className="relative p-4 rounded-[var(--radius-md)] border transition-all"
+      style={{
+        borderColor: 'var(--border-default, #e8e2da)',
+        backgroundColor: 'var(--surface-raised, #ffffff)',
+        transitionProperty: 'transform, opacity',
+        transitionDuration: 'var(--duration-normal, 250ms)',
+        transitionTimingFunction: 'ease-in-out',
+        opacity: isAnimating ? 0 : 1,
+        transform: isAnimating ? 'translateY(-8px) scale(0.97)' : 'translateY(0) scale(1)',
+      }}
+      role="article"
+      aria-label={`Pasien ${patientName}, antrian nomor ${appointment.queue_number}`}
+    >
+      <div className="flex items-start gap-3">
+        {/* Queue Number */}
+        <div
+          className="w-11 h-11 rounded-full flex items-center justify-center font-mono text-lg font-bold shrink-0"
+          style={{
+            background: lane === 'in_progress'
+              ? 'linear-gradient(135deg, var(--category-doctor), var(--accent-primary))'
+              : lane === 'completed'
+                ? 'var(--accent-success)'
+                : 'var(--surface-sunken)',
+            color: lane === 'waiting' ? 'var(--text-primary)' : 'var(--text-inverse)',
+            boxShadow: lane !== 'waiting' ? 'var(--shadow-sm)' : 'none',
+          }}
+          aria-label={`Nomor antrian ${appointment.queue_number}`}
+        >
+          {appointment.queue_number}
+        </div>
+
+        {/* Patient Info */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-sm font-semibold truncate"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {patientName}
+          </p>
+          <p
+            className="text-xs mt-0.5"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            <Clock className="inline size-3 mr-1" style={{ verticalAlign: '-2px' }} />
+            {formatScheduledTime(appointment.schedule)}
+          </p>
+          {chiefComplaint && (
+            <p
+              className="text-xs mt-1 truncate"
+              style={{ color: 'var(--text-secondary)' }}
+              title={chiefComplaint}
+            >
+              {chiefComplaint}
+            </p>
+          )}
+        </div>
+
+        {/* Action Menu */}
+        {lane !== 'completed' && (
+          <div className="relative" ref={menuRef}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setMenuOpen(!menuOpen)}
+              aria-label="Menu aksi"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+            >
+              <MoreVertical className="size-4" />
+            </Button>
+
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-[var(--radius-md)] border py-1"
+                style={{
+                  backgroundColor: 'var(--surface-raised)',
+                  borderColor: 'var(--border-default)',
+                  boxShadow: 'var(--shadow-lg)',
+                }}
+                role="menu"
+                aria-label="Aksi pasien"
+              >
+                {lane === 'waiting' && onMarkInConsultation && (
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-[var(--surface-sunken)]"
+                    style={{ color: 'var(--text-primary)' }}
+                    onClick={() => { onMarkInConsultation(); setMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    <UserCheck className="size-4" style={{ color: 'var(--category-doctor)' }} />
+                    Mulai Konsultasi
+                  </button>
+                )}
+                {lane === 'in_progress' && onComplete && (
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-[var(--surface-sunken)]"
+                    style={{ color: 'var(--text-primary)' }}
+                    onClick={() => { onComplete(); setMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    <CheckCircle className="size-4" style={{ color: 'var(--accent-success)' }} />
+                    Selesai Konsultasi
+                  </button>
+                )}
+                {onNoShow && (
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-[var(--surface-sunken)]"
+                    style={{ color: 'var(--accent-danger)' }}
+                    onClick={() => { onNoShow(); setMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    <XCircle className="size-4" />
+                    Tandai Tidak Hadir
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Medical Record Modal ──
+
+interface MedicalRecordModalProps {
+  appointment: Appointment
+  onDone: () => void
+  onSkip: () => void
+}
+
+function MedicalRecordModal({ appointment, onDone, onSkip }: MedicalRecordModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Buat Rekam Medis"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+        onClick={onSkip}
+        aria-hidden="true"
+      />
+      {/* Content */}
+      <div
+        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-[var(--radius-lg)] p-6 mx-4"
+        style={{
+          backgroundColor: 'var(--surface-raised)',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+      >
+        <MedicalRecordForm
+          appointment={appointment}
+          onDone={onDone}
+          onBack={onSkip}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ──
 
 export default function DoctorQueuePage() {
   const queryClient = useQueryClient()
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
-  const [showForm, setShowForm] = useState(false)
 
+  // ── Local State ──
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
+  const [completingAppointment, setCompletingAppointment] = useState<Appointment | null>(null)
+  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set())
+
+  // Track in-progress form to preserve on realtime reconciliation
+  const formInProgressRef = useRef(false)
+
+  // ── Data Fetching ──
 
   const { data, isLoading } = useQuery({
-    queryKey: ['today-queue', selectedDate],
+    queryKey: [...queryKeys.appointments.todayQueue(), selectedDate],
     queryFn: () => appointmentApi.getTodayQueue(selectedDate),
-    refetchInterval: 10000,
+    staleTime: queryConfig.dashboard.staleTime,
+    gcTime: queryConfig.dashboard.gcTime,
   })
 
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      appointmentApi.updateStatus(id, status),
-    onSuccess: (_, variables) => {
-      if (variables.status === 'in_progress') toast.success('Pasien dipanggil', 'Pasien sedang ditangani.')
-      if (variables.status === 'completed') toast.success('Kunjungan selesai', 'Rekam medis telah disimpan.')
-      queryClient.invalidateQueries({ queryKey: ['today-queue', selectedDate] })
-      queryClient.invalidateQueries({ queryKey: ['doctor-stats'] })
-    },
-    onError: () => toast.error('Gagal memperbarui status antrian'),
-  })
-
-  const queue = data?.data?.data ?? []
+  const queue: Appointment[] = data?.data?.data ?? []
   const waiting = queue.filter(a => a.status === 'waiting')
   const inProgress = queue.filter(a => a.status === 'in_progress')
   const completed = queue.filter(a => a.status === 'completed')
 
-  // Nomor antrian yang sedang ditangani (untuk estimasi)
-  const currentInProgressNumber = inProgress.length > 0 ? inProgress[0].queue_number : 0
-  const scheduleStartTime = queue.length > 0 ? queue[0].schedule?.start_time ?? '' : ''
+  // ── Optimistic Mutation ──
 
-  const callNext = () => {
-    if (waiting.length > 0 && inProgress.length === 0) {
-      statusMutation.mutate({ id: waiting[0].id, status: 'in_progress' })
-    }
-  }
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      appointmentApi.updateStatus(id, status),
+    onMutate: async ({ id, status }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: [...queryKeys.appointments.todayQueue(), selectedDate] })
 
-  const complete = (_id: string, appt: Appointment) => {
-    setSelectedAppointment(appt)
-    setShowForm(true)
-  }
+      // Snapshot previous value
+      const previousQueue = queryClient.getQueryData([...queryKeys.appointments.todayQueue(), selectedDate])
 
-  if (showForm && selectedAppointment) {
-    return (
-      <MedicalRecordForm
-        appointment={selectedAppointment}
-        onDone={() => {
-          setShowForm(false)
-          setSelectedAppointment(null)
-          queryClient.invalidateQueries({ queryKey: ['today-queue', selectedDate] })
-          statusMutation.mutate({ id: selectedAppointment.id, status: 'completed' })
-        }}
-        onBack={() => setShowForm(false)}
-      />
-    )
-  }
+      // Optimistically update
+      queryClient.setQueryData(
+        [...queryKeys.appointments.todayQueue(), selectedDate],
+        (old: unknown) => {
+          if (!old || typeof old !== 'object') return old
+          const oldData = old as { data?: { data?: Appointment[] } }
+          if (!oldData.data?.data) return old
+          return {
+            ...oldData,
+            data: {
+              ...oldData.data,
+              data: oldData.data.data.map(a =>
+                a.id === id ? { ...a, status } : a
+              ),
+            },
+          }
+        }
+      )
+
+      return { previousQueue }
+    },
+    onSuccess: (_, variables) => {
+      if (variables.status === 'in_progress') {
+        toast.success('Pasien dipanggil', 'Pasien sedang ditangani.')
+      }
+      if (variables.status === 'completed') {
+        toast.success('Kunjungan selesai', 'Status pasien telah diperbarui.')
+      }
+      if (variables.status === 'no_show') {
+        toast.info('Pasien tidak hadir', 'Status telah ditandai sebagai tidak hadir.')
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.appointments.todayQueue() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.doctor() })
+    },
+    onError: (_err, _variables, context) => {
+      // Revert optimistic update
+      if (context?.previousQueue) {
+        queryClient.setQueryData(
+          [...queryKeys.appointments.todayQueue(), selectedDate],
+          context.previousQueue
+        )
+      }
+      toast.error('Gagal memperbarui status', 'Terjadi kesalahan saat memperbarui antrian. Silakan coba lagi.')
+    },
+  })
+
+  // ── Actions ──
+
+  const animateTransition = useCallback((id: string, callback: () => void) => {
+    setAnimatingIds(prev => new Set(prev).add(id))
+    setTimeout(() => {
+      callback()
+      setAnimatingIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, 250) // matches var(--duration-normal)
+  }, [])
+
+  const callNext = useCallback(() => {
+    if (waiting.length === 0) return
+    const first = waiting[0]
+    animateTransition(first.id, () => {
+      statusMutation.mutate({ id: first.id, status: 'in_progress' })
+    })
+  }, [waiting, animateTransition, statusMutation])
+
+  const markInConsultation = useCallback((appointment: Appointment) => {
+    animateTransition(appointment.id, () => {
+      statusMutation.mutate({ id: appointment.id, status: 'in_progress' })
+    })
+  }, [animateTransition, statusMutation])
+
+  const handleComplete = useCallback((appointment: Appointment) => {
+    // Block transition until medical record form is submitted or skipped
+    setCompletingAppointment(appointment)
+    formInProgressRef.current = true
+  }, [])
+
+  const handleMedicalRecordDone = useCallback(() => {
+    if (!completingAppointment) return
+    const appt = completingAppointment
+    setCompletingAppointment(null)
+    formInProgressRef.current = false
+    animateTransition(appt.id, () => {
+      statusMutation.mutate({ id: appt.id, status: 'completed' })
+    })
+  }, [completingAppointment, animateTransition, statusMutation])
+
+  const handleMedicalRecordSkip = useCallback(() => {
+    if (!completingAppointment) return
+    const appt = completingAppointment
+    setCompletingAppointment(null)
+    formInProgressRef.current = false
+    animateTransition(appt.id, () => {
+      statusMutation.mutate({ id: appt.id, status: 'completed' })
+    })
+  }, [completingAppointment, animateTransition, statusMutation])
+
+  const markNoShow = useCallback((appointment: Appointment) => {
+    animateTransition(appointment.id, () => {
+      statusMutation.mutate({ id: appointment.id, status: 'no_show' })
+    })
+  }, [animateTransition, statusMutation])
+
+  // ── Realtime Sync ──
+
+  const handleRealtimeMessage = useCallback(
+    (message: RealtimeMessage) => {
+      if (message.type === 'queue_update') {
+        // Preserve in-progress form: don't refetch if form is open
+        if (formInProgressRef.current) return
+        // Reconcile within 1000ms by invalidating the query
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.appointments.todayQueue(), selectedDate] })
+      }
+    },
+    [queryClient, selectedDate]
+  )
+
+  const { connectionState } = useRealtimeSync({
+    channels: ['queue_update'],
+    onMessage: handleRealtimeMessage,
+    refetchKeys: [[...queryKeys.appointments.todayQueue(), selectedDate]],
+  })
+
+  // ── Render ──
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Antrian Pasien</h1>
-          <div className="flex items-center gap-3 mt-2">
-            <input 
-              type="date" 
+      {/* Page Header */}
+      <PageHeader
+        title="Antrian Pasien"
+        subtitle={new Date(selectedDate).toLocaleDateString('id-ID', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })}
+        category="doctor"
+        actions={
+          <div className="flex items-center gap-3">
+            {/* Connection indicator */}
+            {connectionState === 'connected' && (
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)]"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--accent-success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent-success) 20%, transparent)',
+                }}
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: 'var(--accent-success)' }}
+                />
+                <span className="text-xs font-medium" style={{ color: 'var(--accent-success)' }}>
+                  Live
+                </span>
+              </div>
+            )}
+            {connectionState === 'reconnecting' && (
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)]"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--accent-warning) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent-warning) 20%, transparent)',
+                }}
+                role="status"
+                aria-live="polite"
+              >
+                <RotateCcw className="size-3 animate-spin" style={{ color: 'var(--accent-warning)' }} />
+                <span className="text-xs font-medium" style={{ color: 'var(--accent-warning)' }}>
+                  Reconnecting...
+                </span>
+              </div>
+            )}
+
+            {/* Date picker */}
+            <input
+              type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              className="px-3 py-1.5 rounded-[var(--radius-md)] border text-sm font-medium transition-all"
+              style={{
+                borderColor: 'var(--border-default)',
+                backgroundColor: 'var(--surface-raised)',
+                color: 'var(--text-primary)',
+              }}
+              aria-label="Pilih tanggal"
             />
-            <p className="text-slate-500 text-sm">
-              {new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </p>
-          </div>
-        </div>
-        <Button
-          onClick={callNext}
-          disabled={waiting.length === 0 || inProgress.length > 0 || statusMutation.isPending}
-          className="gradient-primary text-white border-0 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all font-semibold"
-          size="lg"
-        >
-          {statusMutation.isPending
-            ? <Loader2 className="size-4 animate-spin" />
-            : <ChevronRight className="size-4" />}
-          Panggil Berikutnya
-        </Button>
-      </div>
 
-      {/* Summary Bar */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Menunggu', count: waiting.length, gradient: 'bg-gradient-to-br from-amber-500 to-yellow-600', shadow: 'shadow-amber-500/25', icon: Clock, dotColor: 'bg-amber-400' },
-          { label: 'Ditangani', count: inProgress.length, gradient: 'gradient-primary', shadow: 'shadow-blue-500/25', icon: UserCheck, dotColor: 'bg-blue-400' },
-          { label: 'Selesai', count: completed.length, gradient: 'gradient-success', shadow: 'shadow-emerald-500/25', icon: CheckCircle, dotColor: 'bg-emerald-400' },
-        ].map(({ label, count, gradient, shadow, icon: Icon }, index) => (
-          <div key={label} className="stagger-item" style={{ animationDelay: `${index * 80}ms` }}>
-            <Card className="card-hover border-0 shadow-sm">
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl ${gradient} shadow-lg ${shadow}`}>
-                  <Icon className="size-4 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-slate-900 number-animate">{count}</p>
-                  <p className="text-[11px] text-slate-400 font-medium">{label}</p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Call Next Button */}
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={callNext}
+              disabled={waiting.length === 0 || statusMutation.isPending}
+              loading={statusMutation.isPending}
+              leftIcon={<ChevronRight className="size-4" />}
+              aria-label="Panggil pasien berikutnya"
+            >
+              Panggil Berikutnya
+            </Button>
           </div>
+        }
+      />
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          {
+            label: 'Menunggu',
+            count: waiting.length,
+            icon: Clock,
+            color: 'var(--accent-warning)',
+          },
+          {
+            label: 'Konsultasi',
+            count: inProgress.length,
+            icon: UserCheck,
+            color: 'var(--category-doctor)',
+          },
+          {
+            label: 'Selesai',
+            count: completed.length,
+            icon: CheckCircle,
+            color: 'var(--accent-success)',
+          },
+        ].map(({ label, count, icon: Icon, color }) => (
+          <Card key={label} surface="raised" padding="sm">
+            <CardContent className="flex items-center gap-3">
+              <div
+                className="p-2.5 rounded-[var(--radius-md)]"
+                style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
+              >
+                <Icon className="size-4" style={{ color }} />
+              </div>
+              <div>
+                <p
+                  className="text-2xl font-bold font-mono"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {count}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                  {label}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
+      {/* Queue Lanes */}
       {isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {[...Array(3)].map((_, i) => (
-            <Card key={i} className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} surface="raised" padding="none">
+              <CardHeader className="px-5 pt-5 pb-3">
                 <div className="h-5 w-32 skeleton rounded" />
               </CardHeader>
-              <CardContent className="space-y-2">
-                {[...Array(2)].map((_, j) => (
+              <CardContent className="px-5 pb-5 space-y-3">
+                {Array.from({ length: 2 }).map((_, j) => (
                   <div key={j} className="flex items-center gap-3 p-3">
-                    <div className="w-9 h-9 rounded-full skeleton" />
+                    <div className="w-11 h-11 rounded-full skeleton" />
                     <div className="flex-1 space-y-2">
-                      <div className="h-3.5 w-24 skeleton rounded" />
-                      <div className="h-3 w-16 skeleton rounded" />
+                      <div className="h-3.5 w-28 skeleton rounded" />
+                      <div className="h-3 w-20 skeleton rounded" />
                     </div>
                   </div>
                 ))}
@@ -163,133 +560,157 @@ export default function DoctorQueuePage() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Menunggu */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
+        <div
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+          role="region"
+          aria-label="Antrian pasien"
+        >
+          {/* Waiting Lane */}
+          <Card surface="raised" padding="none">
+            <CardHeader className="px-5 pt-5 pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 dot-pulse" />
-                Menunggu ({waiting.length})
+                <div
+                  className="p-1.5 rounded-[var(--radius-sm)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--accent-warning) 12%, transparent)' }}
+                >
+                  <Clock className="size-3.5" style={{ color: 'var(--accent-warning)' }} />
+                </div>
+                <span>Menunggu</span>
+                <span
+                  className="ml-auto text-sm font-mono px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--accent-warning) 10%, transparent)',
+                    color: 'var(--accent-warning)',
+                  }}
+                >
+                  {waiting.length}
+                </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {waiting.map((a, index) => (
-                <div key={a.id} className="stagger-item" style={{ animationDelay: `${index * 60}ms` }}>
-                  <AppointmentCard
-                    appt={a}
-                    estimatedTime={getEstimatedTime(a.queue_number, currentInProgressNumber, scheduleStartTime)}
-                  />
-                </div>
-              ))}
-              {waiting.length === 0 && (
-                <div className="flex flex-col items-center py-8 text-slate-400">
-                  <Users className="size-10 mb-3 opacity-20" />
+            <CardContent className="px-5 pb-5 space-y-2">
+              {waiting.length === 0 ? (
+                <div className="flex flex-col items-center py-10" style={{ color: 'var(--text-tertiary)' }}>
+                  <Users className="size-10 mb-3 opacity-30" />
                   <p className="text-sm font-medium">Tidak ada antrian menunggu</p>
                 </div>
+              ) : (
+                waiting.map((appt) => (
+                  <PatientCard
+                    key={appt.id}
+                    appointment={appt}
+                    lane="waiting"
+                    onMarkInConsultation={() => markInConsultation(appt)}
+                    onNoShow={() => markNoShow(appt)}
+                    isAnimating={animatingIds.has(appt.id)}
+                  />
+                ))
               )}
             </CardContent>
           </Card>
 
-          {/* Sedang Ditangani */}
-          <Card className="border-0 shadow-sm ring-2 ring-blue-100 bg-blue-50/20">
-            <CardHeader className="pb-3">
+          {/* In Consultation Lane */}
+          <Card
+            surface="raised"
+            padding="none"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--category-doctor) 25%, transparent)',
+              borderWidth: '2px',
+            }}
+          >
+            <CardHeader className="px-5 pt-5 pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <div className="p-1 rounded-md bg-blue-100">
-                  <UserCheck className="size-3.5 text-blue-600" />
+                <div
+                  className="p-1.5 rounded-[var(--radius-sm)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--category-doctor) 12%, transparent)' }}
+                >
+                  <UserCheck className="size-3.5" style={{ color: 'var(--category-doctor)' }} />
                 </div>
-                Sedang Ditangani ({inProgress.length})
+                <span>Konsultasi</span>
+                <span
+                  className="ml-auto text-sm font-mono px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--category-doctor) 10%, transparent)',
+                    color: 'var(--category-doctor)',
+                  }}
+                >
+                  {inProgress.length}
+                </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {inProgress.map(a => (
-                <div key={a.id}>
-                  <AppointmentCard appt={a} />
-                  <Button
-                    size="sm"
-                    onClick={() => complete(a.id, a)}
-                    className="w-full mt-2 gradient-primary text-white border-0 text-xs rounded-xl shadow-md shadow-blue-500/20 font-semibold"
-                  >
-                    <CheckCircle className="size-3 mr-1" />
-                    Selesai & Buat Rekam Medis
-                  </Button>
+            <CardContent className="px-5 pb-5 space-y-2">
+              {inProgress.length === 0 ? (
+                <div className="flex flex-col items-center py-10" style={{ color: 'var(--text-tertiary)' }}>
+                  <UserCheck className="size-10 mb-3 opacity-30" />
+                  <p className="text-sm font-medium text-center">
+                    Klik "Panggil Berikutnya"<br />untuk mulai konsultasi
+                  </p>
                 </div>
-              ))}
-              {inProgress.length === 0 && (
-                <div className="flex flex-col items-center py-8 text-slate-400">
-                  <UserCheck className="size-10 mb-3 opacity-20" />
-                  <p className="text-sm text-center font-medium">Klik "Panggil Berikutnya"<br/>untuk mulai menangani pasien</p>
-                </div>
+              ) : (
+                inProgress.map((appt) => (
+                  <PatientCard
+                    key={appt.id}
+                    appointment={appt}
+                    lane="in_progress"
+                    onComplete={() => handleComplete(appt)}
+                    onNoShow={() => markNoShow(appt)}
+                    isAnimating={animatingIds.has(appt.id)}
+                  />
+                ))
               )}
             </CardContent>
           </Card>
 
-          {/* Selesai */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
+          {/* Completed Lane */}
+          <Card surface="raised" padding="none">
+            <CardHeader className="px-5 pt-5 pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <div className="p-1 rounded-md bg-emerald-100">
-                  <CheckCircle className="size-3.5 text-emerald-600" />
+                <div
+                  className="p-1.5 rounded-[var(--radius-sm)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--accent-success) 12%, transparent)' }}
+                >
+                  <CheckCircle className="size-3.5" style={{ color: 'var(--accent-success)' }} />
                 </div>
-                Selesai ({completed.length})
+                <span>Selesai</span>
+                <span
+                  className="ml-auto text-sm font-mono px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--accent-success) 10%, transparent)',
+                    color: 'var(--accent-success)',
+                  }}
+                >
+                  {completed.length}
+                </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {completed.slice(0, 6).map((a, index) => (
-                <div key={a.id} className="stagger-item" style={{ animationDelay: `${index * 50}ms` }}>
-                  <AppointmentCard appt={a} />
+            <CardContent className="px-5 pb-5 space-y-2">
+              {completed.length === 0 ? (
+                <div className="flex flex-col items-center py-10" style={{ color: 'var(--text-tertiary)' }}>
+                  <CheckCircle className="size-10 mb-3 opacity-30" />
+                  <p className="text-sm font-medium">Belum ada kunjungan selesai</p>
                 </div>
-              ))}
-              {completed.length > 6 && (
-                <p className="text-xs text-center text-slate-400 pt-1">
-                  +{completed.length - 6} kunjungan lainnya
-                </p>
+              ) : (
+                completed.map((appt) => (
+                  <PatientCard
+                    key={appt.id}
+                    appointment={appt}
+                    lane="completed"
+                    isAnimating={animatingIds.has(appt.id)}
+                  />
+                ))
               )}
-              {completed.length === 0 && <p className="text-sm text-slate-400 text-center py-6">Belum ada</p>}
             </CardContent>
           </Card>
         </div>
       )}
-    </div>
-  )
-}
 
-function AppointmentCard({ appt, estimatedTime }: { appt: Appointment; estimatedTime?: string }) {
-  return (
-    <div className="p-4 rounded-xl bg-white border border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 hover:shadow-md hover:border-slate-200 transition-all duration-200">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md shadow-blue-500/20">
-          {appt.queue_number}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-800 truncate">{appt.patient?.user?.full_name}</p>
-          {estimatedTime && appt.status === 'waiting' && (
-            <p className="text-[11px] text-amber-600 font-medium flex items-center gap-1 mt-0.5">
-              <Clock className="size-3" />
-              {estimatedTime}
-            </p>
-          )}
-          {appt.status === 'in_progress' && appt.checked_in_at && (
-            <p className="text-[11px] text-blue-600 font-medium mt-0.5">
-              Masuk: {new Date(appt.checked_in_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
-          {appt.status === 'completed' && appt.completed_at && (
-            <p className="text-[11px] text-emerald-600 mt-0.5">
-              Selesai: {new Date(appt.completed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0 border-t sm:border-0 pt-2 sm:pt-0 mt-2 sm:mt-0">
-        <Badge variant={
-          appt.status === 'waiting' ? 'secondary'
-          : appt.status === 'in_progress' ? 'default'
-          : 'outline'
-        } className="text-[10px] uppercase tracking-wider font-bold">
-          {appt.status === 'waiting' ? 'Tunggu'
-            : appt.status === 'in_progress' ? 'Ditangani' : 'Selesai'}
-        </Badge>
-      </div>
+      {/* Medical Record Modal — blocks completion until submitted or skipped */}
+      {completingAppointment && (
+        <MedicalRecordModal
+          appointment={completingAppointment}
+          onDone={handleMedicalRecordDone}
+          onSkip={handleMedicalRecordSkip}
+        />
+      )}
     </div>
   )
 }

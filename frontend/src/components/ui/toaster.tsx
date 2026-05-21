@@ -9,11 +9,12 @@ import {
   ToastViewport,
 } from "@/components/ui/toast"
 
+// Icon colors reference CSS custom properties from tokens.css — no hardcoded values
 const ICONS = {
-  success:     <CheckCircle className="size-4 text-green-600 shrink-0 mt-0.5" />,
-  destructive: <AlertCircle className="size-4 text-red-600 shrink-0 mt-0.5" />,
-  warning:     <AlertTriangle className="size-4 text-yellow-600 shrink-0 mt-0.5" />,
-  default:     <Info className="size-4 text-blue-600 shrink-0 mt-0.5" />,
+  success:     <CheckCircle className="size-4 shrink-0 mt-0.5" style={{ color: 'var(--accent-success, #059669)' }} />,
+  destructive: <AlertCircle className="size-4 shrink-0 mt-0.5" style={{ color: 'var(--accent-danger, #dc2626)' }} />,
+  warning:     <AlertTriangle className="size-4 shrink-0 mt-0.5" style={{ color: 'var(--accent-warning, #d97706)' }} />,
+  default:     <Info className="size-4 shrink-0 mt-0.5" style={{ color: 'var(--accent-info, #2563eb)' }} />,
 }
 
 export function Toaster() {

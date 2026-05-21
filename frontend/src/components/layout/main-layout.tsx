@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Sidebar, { MobileMenuButton } from './sidebar'
 import { useAuthStore } from '@/store/auth-store'
 import { useThemeStore } from '@/store/theme-store'
@@ -7,7 +7,8 @@ import { appointmentApi } from '@/api/appointments'
 import { toast } from '@/hooks/use-toast'
 import { useQuery } from '@tanstack/react-query'
 import { cn, getUserRole } from '@/lib/utils'
-import { Bell, Search, X, ChevronRight, Sun, Moon } from 'lucide-react'
+import { queryConfig } from '@/lib/query-keys'
+import { Bell, Search, X, ChevronRight, Sun, Moon, User, Settings, LogOut } from 'lucide-react'
 
 // Map paths to readable breadcrumbs
 const pathLabels: Record<string, string> = {
@@ -50,15 +51,76 @@ function TimeDisplay({ isDark }: { isDark: boolean }) {
   )
 }
 
+/**
+ * Viewport breakpoint detection hook.
+ * Returns the current layout mode based on viewport width:
+ * - 'full': ≥1024px — persistent full sidebar
+ * - 'icon': 768-1023px — icon-only collapsed sidebar
+ * - 'drawer': <768px — slide-over drawer triggered by menu button
+ */
+function useViewportMode(): 'full' | 'icon' | 'drawer' {
+  const [mode, setMode] = useState<'full' | 'icon' | 'drawer'>(() => {
+    if (typeof window === 'undefined') return 'full'
+    const w = window.innerWidth
+    if (w >= 1024) return 'full'
+    if (w >= 768) return 'icon'
+    return 'drawer'
+  })
+
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth
+      if (w >= 1024) setMode('full')
+      else if (w >= 768) setMode('icon')
+      else setMode('drawer')
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  return mode
+}
+
 export default function MainLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const sidebarScrollRef = useRef<number>(0)
   const location = useLocation()
-  const { user } = useAuthStore()
-  const { isDark, toggle: toggleTheme } = useThemeStore()
+  const navigate = useNavigate()
+  const { user, logout } = useAuthStore()
+  const { config, toggleMode: toggleTheme } = useThemeStore()
+  const isDark = config.mode === 'dark'
   const userRole = getUserRole(user)
+  const viewportMode = useViewportMode()
+
+  // Fade transition state for page content
+  const [contentVisible, setContentVisible] = useState(true)
+  const prevPathRef = useRef(location.pathname)
+
+  // Trigger fade transition on route change
+  useEffect(() => {
+    if (prevPathRef.current !== location.pathname) {
+      prevPathRef.current = location.pathname
+      setContentVisible(false)
+      // After a brief delay, show new content with fade-in
+      const timer = requestAnimationFrame(() => {
+        setContentVisible(true)
+      })
+      return () => cancelAnimationFrame(timer)
+    }
+    return undefined
+  }, [location.pathname])
+
+  // Derive sidebar collapsed state from viewport mode
+  const sidebarCollapsed = viewportMode === 'icon'
+
+  // Callback to save sidebar scroll position
+  const handleSidebarScroll = useCallback((scrollTop: number) => {
+    sidebarScrollRef.current = scrollTop
+  }, [])
 
   // Polling to notify doctor if there's a new patient
   const previousQueueLengthRef = useRef<number | null>(null)
@@ -66,7 +128,8 @@ export default function MainLayout() {
     queryKey: ['today-queue'],
     queryFn: () => appointmentApi.getTodayQueue(),
     refetchInterval: 10000,
-    staleTime: 5000,
+    staleTime: queryConfig.dashboard.staleTime,
+    gcTime: queryConfig.dashboard.gcTime,
     enabled: userRole === 'doctor',
   })
 
@@ -94,23 +157,77 @@ export default function MainLayout() {
     isLast: idx === pathSegments.length - 1,
   }))
 
-  // Close mobile sidebar on resize
+  // Close mobile drawer on route change
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) setMobileOpen(false)
+    setMobileOpen(false)
+  }, [location.pathname])
+
+  // Close mobile drawer when viewport grows past drawer breakpoint
+  useEffect(() => {
+    if (viewportMode !== 'drawer') {
+      setMobileOpen(false)
     }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  }, [viewportMode])
 
   // Close search on Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSearchOpen(false)
+      if (e.key === 'Escape') {
+        setSearchOpen(false)
+        setUserMenuOpen(false)
+      }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [])
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    if (userMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [userMenuOpen])
+
+  // Close user menu on route change
+  useEffect(() => {
+    setUserMenuOpen(false)
+  }, [location.pathname])
+
+  /**
+   * Sign-out action: clears Auth_Store and redirects to /login within 300ms.
+   * Requirement 1.7: Auth_Store SHALL clear the authenticated session and
+   * the Routing_Layer SHALL redirect to the Login_Page within 300 milliseconds.
+   */
+  const handleSignOut = useCallback(() => {
+    logout()
+    navigate('/login')
+  }, [logout, navigate])
+
+  /**
+   * Returns the settings path for the current role.
+   * Only patients have a dedicated settings page; admin/doctor go to dashboard.
+   */
+  const getSettingsPath = () => {
+    if (userRole === 'patient') return '/patient/settings'
+    if (userRole === 'admin') return '/admin/dashboard'
+    return '/doctor/dashboard'
+  }
+
+  /**
+   * Returns the profile path for the current role.
+   * Patients use settings page for profile; admin/doctor go to dashboard.
+   */
+  const getProfilePath = () => {
+    if (userRole === 'patient') return '/patient/settings'
+    if (userRole === 'admin') return '/admin/dashboard'
+    return '/doctor/dashboard'
+  }
 
   const roleColor = userRole === 'admin'
     ? 'from-blue-500 to-indigo-600'
@@ -118,20 +235,27 @@ export default function MainLayout() {
     ? 'from-emerald-500 to-teal-600'
     : 'from-cyan-500 to-blue-600'
 
+  // Compute sidebar width for main content margin
+  const sidebarWidth = viewportMode === 'full' ? '272px'
+    : viewportMode === 'icon' ? '72px'
+    : '0px'
+
   return (
     <div className={cn("flex min-h-screen transition-colors duration-300", isDark && "dark")} style={{ background: 'hsl(var(--background))' }}>
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggle={() => {/* In responsive mode, toggle is handled by viewport */}}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
+        onScroll={handleSidebarScroll}
+        initialScrollTop={sidebarScrollRef.current}
       />
 
       {/* Main content area */}
-      <div className={cn(
-        "flex-1 flex flex-col min-h-screen transition-all duration-300",
-        sidebarCollapsed ? "lg:ml-[72px]" : "lg:ml-[272px]"
-      )}>
+      <div
+        className="flex-1 flex flex-col min-h-screen transition-all duration-300"
+        style={{ marginLeft: viewportMode !== 'drawer' ? sidebarWidth : '0px' }}
+      >
 
         {/* Top Header Bar */}
         <header className={cn("sticky top-0 z-30 border-b backdrop-blur-xl transition-colors duration-300", isDark ? "bg-slate-900/85" : "bg-white/85")}
@@ -158,7 +282,10 @@ export default function MainLayout() {
           <div className="flex items-center justify-between h-16 px-4 lg:px-8">
             {/* Left: mobile menu + breadcrumbs */}
             <div className="flex items-center gap-3">
-              <MobileMenuButton onClick={() => setMobileOpen(true)} />
+              {/* Show menu button only in drawer mode */}
+              {viewportMode === 'drawer' && (
+                <MobileMenuButton onClick={() => setMobileOpen(true)} />
+              )}
 
               {/* Breadcrumbs — desktop */}
               <nav className="hidden sm:flex items-center gap-1 text-sm" aria-label="Breadcrumb">
@@ -233,26 +360,113 @@ export default function MainLayout() {
                 <span className={cn("absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2", isDark ? "ring-slate-900" : "ring-white")} />
               </button>
 
-              {/* User pill — desktop */}
-              <div className="hidden md:flex items-center gap-2.5 ml-1 pl-3 border-l"
-                style={{ borderColor: 'hsl(var(--border))' }}>
-                <div className="text-right hidden lg:block">
-                  <p className={cn("text-[13px] font-semibold leading-tight", isDark ? "text-white" : "text-slate-800")}>
-                    Selamat {getGreeting()}! 👋
-                  </p>
-                  <p className={cn("text-[11px]", isDark ? "text-slate-500" : "text-slate-400")}>{user?.full_name}</p>
-                </div>
-                <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${roleColor} flex items-center justify-center text-white text-xs font-bold shadow-md shrink-0`}>
-                  {user?.full_name?.charAt(0).toUpperCase()}
-                </div>
+              {/* User pill — desktop with dropdown menu */}
+              <div className="hidden md:flex items-center gap-2.5 ml-1 pl-3 border-l relative"
+                style={{ borderColor: 'hsl(var(--border))' }}
+                ref={userMenuRef}
+              >
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-all",
+                    userMenuOpen
+                      ? isDark ? "bg-white/10" : "bg-slate-100"
+                      : isDark ? "hover:bg-white/5" : "hover:bg-slate-50"
+                  )}
+                  aria-expanded={userMenuOpen}
+                  aria-haspopup="true"
+                  aria-label="User menu"
+                >
+                  <div className="text-right hidden lg:block">
+                    <p className={cn("text-[13px] font-semibold leading-tight", isDark ? "text-white" : "text-slate-800")}>
+                      Selamat {getGreeting()}! 👋
+                    </p>
+                    <p className={cn("text-[11px]", isDark ? "text-slate-500" : "text-slate-400")}>{user?.full_name}</p>
+                  </div>
+                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${roleColor} flex items-center justify-center text-white text-xs font-bold shadow-md shrink-0`}>
+                    {user?.full_name?.charAt(0).toUpperCase()}
+                  </div>
+                </button>
+
+                {/* User dropdown menu — Requirement 1.6: profile, settings, sign-out */}
+                {userMenuOpen && (
+                  <div
+                    className={cn(
+                      "absolute top-full right-0 mt-2 w-56 rounded-xl border shadow-xl z-50 py-1.5 animate-in fade-in slide-in-from-top-2 duration-150",
+                      isDark
+                        ? "bg-slate-800 border-slate-700"
+                        : "bg-white border-slate-200"
+                    )}
+                    role="menu"
+                    aria-label="User actions"
+                  >
+                    {/* User info header */}
+                    <div className={cn("px-4 py-3 border-b", isDark ? "border-slate-700" : "border-slate-100")}>
+                      <p className={cn("text-sm font-semibold", isDark ? "text-white" : "text-slate-900")}>{user?.full_name}</p>
+                      <p className={cn("text-xs mt-0.5", isDark ? "text-slate-400" : "text-slate-500")}>{user?.email}</p>
+                    </div>
+
+                    {/* Menu items */}
+                    <div className="py-1.5">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); navigate(getProfilePath()) }}
+                        className={cn(
+                          "flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors",
+                          isDark
+                            ? "text-slate-300 hover:text-white hover:bg-white/5"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                        )}
+                        role="menuitem"
+                      >
+                        <User className="size-4" />
+                        <span>Profil</span>
+                      </button>
+                      <button
+                        onClick={() => { setUserMenuOpen(false); navigate(getSettingsPath()) }}
+                        className={cn(
+                          "flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors",
+                          isDark
+                            ? "text-slate-300 hover:text-white hover:bg-white/5"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                        )}
+                        role="menuitem"
+                      >
+                        <Settings className="size-4" />
+                        <span>Pengaturan</span>
+                      </button>
+                    </div>
+
+                    {/* Sign-out — Requirement 1.7 */}
+                    <div className={cn("border-t pt-1.5", isDark ? "border-slate-700" : "border-slate-100")}>
+                      <button
+                        onClick={handleSignOut}
+                        className={cn(
+                          "flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors",
+                          "text-red-500 hover:text-red-600",
+                          isDark ? "hover:bg-red-500/10" : "hover:bg-red-50"
+                        )}
+                        role="menuitem"
+                      >
+                        <LogOut className="size-4" />
+                        <span>Keluar</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </header>
 
-        {/* Page Content */}
+        {/* Page Content with fade transition on route change */}
         <main className="flex-1 p-4 lg:p-8 overflow-auto">
-          <div className="page-enter">
+          <div
+            className="page-content-fade"
+            style={{
+              opacity: contentVisible ? 1 : 0,
+              transition: `opacity var(--duration-normal, 250ms) ease-in-out`,
+            }}
+          >
             <Outlet />
           </div>
         </main>

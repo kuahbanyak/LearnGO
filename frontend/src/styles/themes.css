@@ -1,0 +1,344 @@
+/**
+ * MediQueue Design System — Theme-Specific Token Overrides
+ * "Soft Machine Medical" — light · dark · high-contrast
+ *
+ * This file defines [data-theme] selector overrides for all three theme modes.
+ * The :root block in tokens.css sets light-theme defaults; this file makes
+ * each mode explicit and self-contained so the cascade is unambiguous.
+ *
+ * Theme switching is zero-runtime: the ThemeResolver sets data-theme on <html>
+ * and CSS cascade resolves all tokens without JavaScript re-renders.
+ *
+ * Contrast ratios verified against WCAG 2.1 relative luminance formula.
+ * Requirements: 1.6, 2.1, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 13.1, 13.4
+ */
+
+/* ============================================================
+ * LIGHT THEME
+ * Mirrors :root defaults explicitly so [data-theme="light"] is
+ * self-contained and wins over any inherited :root values when
+ * the attribute is present on a sub-tree.
+ *
+ * Contrast ratios on surface-ground (#f7f5f2):
+ *   text-primary   #1a1714 → 16.40:1  (≥4.5 ✓ Req 9.1)
+ *   text-secondary #3d3830 → 10.68:1  (≥4.5 ✓ Req 9.2)
+ *   text-tertiary  #6b6358 →  5.43:1  (≥3.0 ✓ Req 9.3)
+ *
+ * Contrast ratios on surface-raised (#ffffff):
+ *   text-primary   #1a1714 → 17.85:1  (≥4.5 ✓ Req 9.5)
+ *   text-secondary #3d3830 → 11.61:1  (≥4.5 ✓ Req 9.5)
+ *
+ * Category colors as foreground on surface-raised (#ffffff):
+ *   category-admin   #7c3aed → 5.70:1  (≥3.0 ✓ Req 13.4)
+ *   category-doctor  #0284c7 → 4.10:1  (≥3.0 ✓ Req 13.4)
+ *   category-patient #059669 → 3.77:1  (≥3.0 ✓ Req 13.4)
+ *   category-queue   #b45309 → 5.02:1  (≥3.0 ✓ Req 13.4)
+ *
+ * Note: tokens.css :root uses the original Tailwind-500 category values
+ * (#8b5cf6, #0ea5e9, #10b981, #f59e0b) which do not meet ≥3:1 on white.
+ * This [data-theme="light"] block uses the compliant -600/-700 variants.
+ * When data-theme is present on <html>, these values take precedence.
+ * ============================================================ */
+[data-theme="light"] {
+  /* --- Surfaces --- */
+  --surface-ground:  #f7f5f2;
+  --surface-raised:  #ffffff;
+  --surface-overlay: #ffffff;
+  --surface-sunken:  #f0ede8;
+
+  /* --- Text --- */
+  --text-primary:   #1a1714;   /* 16.40:1 on ground, 17.85:1 on raised */
+  --text-secondary: #3d3830;   /* 10.68:1 on ground, 11.61:1 on raised */
+  --text-tertiary:  #6b6358;   /*  5.43:1 on ground,  5.91:1 on raised */
+  --text-inverse:   #ffffff;
+
+  /* --- Accents --- */
+  --accent-primary:   #0284c7;  /* sky-600 — 4.10:1 on white (focus ring ≥3:1 ✓ Req 9.6) */
+  --accent-secondary: #4f46e5;  /* indigo-600 */
+  --accent-success:   #059669;  /* emerald-600 */
+  --accent-warning:   #d97706;  /* amber-600 */
+  --accent-danger:    #dc2626;  /* red-600 */
+  --accent-info:      #2563eb;  /* blue-600 */
+
+  /* --- Category colors (compliant ≥3:1 on all surfaces) --- */
+  --category-admin:   #7c3aed;  /* violet-600 — 5.70:1 on white ✓ */
+  --category-doctor:  #0284c7;  /* sky-600    — 4.10:1 on white ✓ */
+  --category-patient: #059669;  /* emerald-600 — 3.77:1 on white ✓ */
+  --category-queue:   #b45309;  /* amber-700  — 5.02:1 on white ✓ */
+
+  /* --- Font families (unchanged across themes) --- */
+  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-body:    "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* --- Spacing (unchanged across themes) --- */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-7:  1.75rem;
+  --space-8:  2rem;
+  --space-9:  2.25rem;
+  --space-10: 2.5rem;
+  --space-11: 2.75rem;
+  --space-12: 3rem;
+  --space-13: 3.25rem;
+  --space-14: 3.5rem;
+  --space-15: 3.75rem;
+  --space-16: 4rem;
+
+  /* --- Radii (unchanged across themes) --- */
+  --radius-sm:   0.375rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-full: 9999px;
+
+  /* --- Motion (unchanged across themes) --- */
+  --ease-out:        cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:   150ms;
+  --duration-normal: 250ms;
+  --duration-slow:   400ms;
+
+  /* --- Elevation — warm-tinted shadows --- */
+  --shadow-sm:
+    0 1px 2px rgba(26, 23, 20, 0.04),
+    0 2px 6px rgba(26, 23, 20, 0.03);
+
+  --shadow-md:
+    0 1px 3px rgba(26, 23, 20, 0.04),
+    0 4px 12px rgba(26, 23, 20, 0.06),
+    0 8px 24px rgba(26, 23, 20, 0.04);
+
+  --shadow-lg:
+    0 2px 6px rgba(26, 23, 20, 0.04),
+    0 8px 24px rgba(26, 23, 20, 0.08),
+    0 20px 48px rgba(26, 23, 20, 0.06);
+
+  --shadow-glow:
+    0 0 0 1px rgba(2, 132, 199, 0.15),
+    0 4px 16px rgba(2, 132, 199, 0.20),
+    0 8px 32px rgba(2, 132, 199, 0.12);
+}
+
+/* ============================================================
+ * DARK THEME
+ * Warm dark backgrounds with bright text and vibrant accents.
+ * Aesthetic: editorial warmth meets modern product optimism —
+ * rich espresso tones, not cold grey.
+ *
+ * Contrast ratios on surface-ground (#1a1714):
+ *   text-primary   #f7f5f2 → 16.40:1  (≥4.5 ✓ Req 9.1)
+ *   text-secondary #d4cfc9 → 11.53:1  (≥4.5 ✓ Req 9.2)
+ *   text-tertiary  #9e9690 →  6.14:1  (≥3.0 ✓ Req 9.3)
+ *
+ * Contrast ratios on surface-raised (#242019):
+ *   text-primary   #f7f5f2 → 14.89:1  (≥4.5 ✓ Req 9.5)
+ *   text-secondary #d4cfc9 → 10.47:1  (≥4.5 ✓ Req 9.5)
+ *
+ * Contrast ratios on surface-overlay (#2e2a24):
+ *   text-primary   #f7f5f2 → 13.10:1  (≥4.5 ✓ Req 9.5)
+ *   text-secondary #d4cfc9 →  9.21:1  (≥4.5 ✓ Req 9.5)
+ *
+ * Category colors as foreground on surface-ground (#1a1714):
+ *   category-admin   #a78bfa → 6.56:1  (≥3.0 ✓ Req 13.4)
+ *   category-doctor  #38bdf8 → 8.33:1  (≥3.0 ✓ Req 13.4)
+ *   category-patient #34d399 → 9.28:1  (≥3.0 ✓ Req 13.4)
+ *   category-queue   #fbbf24 → 10.69:1 (≥3.0 ✓ Req 13.4)
+ * ============================================================ */
+[data-theme="dark"] {
+  /* --- Surfaces — warm espresso tones --- */
+  --surface-ground:  #1a1714;  /* Deep espresso — page background */
+  --surface-raised:  #242019;  /* Warm dark — cards, panels */
+  --surface-overlay: #2e2a24;  /* Slightly lighter — modals, popovers */
+  --surface-sunken:  #141210;  /* Deepest — inset areas, code blocks */
+
+  /* --- Text --- */
+  --text-primary:   #f7f5f2;   /* 16.40:1 on ground ✓ */
+  --text-secondary: #d4cfc9;   /* 11.53:1 on ground ✓ */
+  --text-tertiary:  #9e9690;   /*  6.14:1 on ground ✓ */
+  --text-inverse:   #1a1714;   /* Text on bright/filled surfaces */
+
+  /* --- Accents — vibrant, neon-adjacent --- */
+  --accent-primary:   #38bdf8;  /* sky-400 — bright CTA */
+  --accent-secondary: #818cf8;  /* indigo-400 */
+  --accent-success:   #34d399;  /* emerald-400 */
+  --accent-warning:   #fbbf24;  /* amber-400 */
+  --accent-danger:    #f87171;  /* red-400 */
+  --accent-info:      #60a5fa;  /* blue-400 */
+
+  /* --- Category colors — bright, perceptually distinct --- */
+  --category-admin:   #a78bfa;  /* violet-400 — 6.56:1 on ground ✓ */
+  --category-doctor:  #38bdf8;  /* sky-400    — 8.33:1 on ground ✓ */
+  --category-patient: #34d399;  /* emerald-400 — 9.28:1 on ground ✓ */
+  --category-queue:   #fbbf24;  /* amber-400  — 10.69:1 on ground ✓ */
+
+  /* --- Font families (unchanged across themes) --- */
+  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-body:    "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* --- Spacing (unchanged across themes) --- */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-7:  1.75rem;
+  --space-8:  2rem;
+  --space-9:  2.25rem;
+  --space-10: 2.5rem;
+  --space-11: 2.75rem;
+  --space-12: 3rem;
+  --space-13: 3.25rem;
+  --space-14: 3.5rem;
+  --space-15: 3.75rem;
+  --space-16: 4rem;
+
+  /* --- Radii (unchanged across themes) --- */
+  --radius-sm:   0.375rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-full: 9999px;
+
+  /* --- Motion (unchanged across themes) --- */
+  --ease-out:        cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:   150ms;
+  --duration-normal: 250ms;
+  --duration-slow:   400ms;
+
+  /* --- Elevation — dark-adapted shadows with warm tint --- */
+  --shadow-sm:
+    0 1px 2px rgba(0, 0, 0, 0.20),
+    0 2px 6px rgba(0, 0, 0, 0.16);
+
+  --shadow-md:
+    0 1px 3px rgba(0, 0, 0, 0.24),
+    0 4px 12px rgba(0, 0, 0, 0.28),
+    0 8px 24px rgba(0, 0, 0, 0.20);
+
+  --shadow-lg:
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    0 8px 24px rgba(0, 0, 0, 0.36),
+    0 20px 48px rgba(0, 0, 0, 0.28);
+
+  /* Neon sky glow for interactive elements */
+  --shadow-glow:
+    0 0 0 1px rgba(56, 189, 248, 0.20),
+    0 4px 16px rgba(56, 189, 248, 0.28),
+    0 8px 32px rgba(56, 189, 248, 0.16);
+}
+
+/* ============================================================
+ * HIGH-CONTRAST THEME
+ * TV display / queue surface — neon energy aesthetics.
+ * Near-black backgrounds with maximum-contrast neon foregrounds.
+ * Designed for readability at distance on large screens.
+ *
+ * Contrast ratios on surface-ground (#0a0908):
+ *   text-primary   #ffffff → 19.90:1  (≥4.5 ✓ Req 9.1)
+ *   text-secondary #f0ede8 → 17.04:1  (≥4.5 ✓ Req 9.2)
+ *   text-tertiary  #d4cfc9 → 12.85:1  (≥3.0 ✓ Req 9.3)
+ *
+ * Contrast ratios on surface-raised (#111009):
+ *   text-primary   #ffffff → 19.06:1  (≥4.5 ✓ Req 9.5)
+ *   text-secondary #f0ede8 → 16.32:1  (≥4.5 ✓ Req 9.5)
+ *
+ * Contrast ratios on surface-overlay (#1a1714):
+ *   text-primary   #ffffff → 17.85:1  (≥4.5 ✓ Req 9.5)
+ *   text-secondary #f0ede8 → 15.28:1  (≥4.5 ✓ Req 9.5)
+ *
+ * Category colors as foreground on surface-ground (#0a0908):
+ *   category-admin   #c084fc → 7.53:1  (≥3.0 ✓ Req 13.4)
+ *   category-doctor  #22d3ee → 11.01:1 (≥3.0 ✓ Req 13.4)
+ *   category-patient #4ade80 → 11.42:1 (≥3.0 ✓ Req 13.4)
+ *   category-queue   #facc15 → 12.99:1 (≥3.0 ✓ Req 13.4)
+ * ============================================================ */
+[data-theme="high-contrast"] {
+  /* --- Surfaces — near-black for maximum contrast --- */
+  --surface-ground:  #0a0908;  /* Near-black — TV display background */
+  --surface-raised:  #111009;  /* Slightly lifted — card surfaces */
+  --surface-overlay: #1a1714;  /* Modal / popover layer */
+  --surface-sunken:  #050403;  /* Deepest inset — code, data blocks */
+
+  /* --- Text — maximum brightness --- */
+  --text-primary:   #ffffff;   /* 19.90:1 on ground ✓ */
+  --text-secondary: #f0ede8;   /* 17.04:1 on ground ✓ */
+  --text-tertiary:  #d4cfc9;   /* 12.85:1 on ground ✓ */
+  --text-inverse:   #0a0908;   /* Text on bright/neon surfaces */
+
+  /* --- Accents — neon energy palette --- */
+  --accent-primary:   #22d3ee;  /* cyan-400 — primary CTA neon */
+  --accent-secondary: #c084fc;  /* purple-400 */
+  --accent-success:   #4ade80;  /* green-400 */
+  --accent-warning:   #facc15;  /* yellow-400 */
+  --accent-danger:    #f87171;  /* red-400 */
+  --accent-info:      #60a5fa;  /* blue-400 */
+
+  /* --- Category colors — neon, perceptually distinct --- */
+  --category-admin:   #c084fc;  /* purple-400 — 7.53:1 on ground ✓ */
+  --category-doctor:  #22d3ee;  /* cyan-400   — 11.01:1 on ground ✓ */
+  --category-patient: #4ade80;  /* green-400  — 11.42:1 on ground ✓ */
+  --category-queue:   #facc15;  /* yellow-400 — 12.99:1 on ground ✓ */
+
+  /* --- Font families (unchanged across themes) --- */
+  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-body:    "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* --- Spacing (unchanged across themes) --- */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-7:  1.75rem;
+  --space-8:  2rem;
+  --space-9:  2.25rem;
+  --space-10: 2.5rem;
+  --space-11: 2.75rem;
+  --space-12: 3rem;
+  --space-13: 3.25rem;
+  --space-14: 3.5rem;
+  --space-15: 3.75rem;
+  --space-16: 4rem;
+
+  /* --- Radii (unchanged across themes) --- */
+  --radius-sm:   0.375rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-full: 9999px;
+
+  /* --- Motion (unchanged across themes) --- */
+  --ease-out:        cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:   150ms;
+  --duration-normal: 250ms;
+  --duration-slow:   400ms;
+
+  /* --- Elevation — deep shadows with neon glow accents --- */
+  --shadow-sm:
+    0 1px 2px rgba(0, 0, 0, 0.40),
+    0 2px 6px rgba(0, 0, 0, 0.32);
+
+  --shadow-md:
+    0 1px 3px rgba(0, 0, 0, 0.48),
+    0 4px 12px rgba(0, 0, 0, 0.52),
+    0 8px 24px rgba(0, 0, 0, 0.40);
+
+  --shadow-lg:
+    0 2px 6px rgba(0, 0, 0, 0.52),
+    0 8px 24px rgba(0, 0, 0, 0.60),
+    0 20px 48px rgba(0, 0, 0, 0.52);
+
+  /* Neon cyan glow — maximum energy for TV display */
+  --shadow-glow:
+    0 0 0 1px rgba(34, 211, 238, 0.30),
+    0 4px 20px rgba(34, 211, 238, 0.40),
+    0 8px 40px rgba(34, 211, 238, 0.24);
+}
