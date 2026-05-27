@@ -568,12 +568,14 @@ cancelled   cancelled
 
 | Layer | Teknologi |
 |-------|-----------|
-| Frontend | React 18, TypeScript, Vite, TailwindCSS |
-| State Management | Zustand (auth, theme), TanStack Query (server state) |
-| UI Components | Radix UI, Lucide Icons, Recharts |
-| Backend | Go 1.21+, Gin Framework |
-| Database | PostgreSQL 15+ |
+| Frontend | React 19, TypeScript 5.7, Vite 5, TailwindCSS v4 |
+| State Management | Zustand v5 (auth, theme), TanStack Query v5 (server state) |
+| UI Components | Radix UI v1-v2, Lucide Icons v1, Recharts v3 |
+| Backend | Go 1.25.4, Gin Framework v1.9+ |
+| Database | PostgreSQL 14+ |
 | ORM | GORM v2 |
-| Auth | JWT (HS256) |
+| Auth | JWT (HS256) - golang-jwt/jwt v5 |
 | Real-time | WebSocket (gorilla/websocket) |
+| QR Code | skip2/go-qrcode, html5-qrcode v2.3.8 |
+| PDF Export | jung-kurt/gofpdf |
 | Containerization | Docker, Docker Compose |

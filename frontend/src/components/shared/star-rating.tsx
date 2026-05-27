@@ -43,12 +43,13 @@ export default function StarRating({
         const isFilled = i < Math.floor(rating)
         const isHalf = i < rating && i >= Math.floor(rating)
 
+        // Use span for non-interactive to avoid nested button issues
+        const Element = interactive ? 'button' : 'span'
+
         return (
-          <button
+          <Element
             key={i}
-            type="button"
-            onClick={() => handleClick(i)}
-            disabled={!interactive}
+            {...(interactive ? { type: 'button' as const, onClick: () => handleClick(i) } : {})}
             className={cn(
               'relative transition-all',
               interactive && 'cursor-pointer hover:scale-110',
@@ -80,7 +81,7 @@ export default function StarRating({
                 />
               </div>
             )}
-          </button>
+          </Element>
         )
       })}
     </div>

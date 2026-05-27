@@ -49,7 +49,14 @@ const profileSchema = z.object({
   email: z.string().email('Format email tidak valid'),
   phone: z.string().min(1, 'Nomor telepon wajib diisi'),
   address: z.string().optional(),
-  emergency_contact: z.string().optional(),
+  date_of_birth: z.string().optional(),
+  nik: z.string().refine(
+    (val) => !val || (val.length >= 10 && val.length <= 16),
+    { message: 'NIK harus 10-16 digit' }
+  ).optional(),
+  gender: z.enum(['male', 'female']).optional(),
+  blood_type: z.enum(['A', 'B', 'AB', 'O']).optional(),
+  allergies: z.string().optional(),
 })
 
 type ProfileFormData = z.infer<typeof profileSchema>
@@ -92,11 +99,15 @@ export default function PatientSettingsPage() {
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      full_name: user?.full_name ?? '',
+      full_name: user?.patient?.full_name ?? '',
       email: user?.email ?? '',
-      phone: user?.phone ?? '',
-      address: user?.address ?? '',
-      emergency_contact: '',
+      phone: user?.patient?.phone || user?.phone || '',
+      address: user?.patient?.address ?? '',
+      date_of_birth: user?.patient?.date_of_birth?.split('T')[0] ?? '',
+      nik: user?.patient?.nik ?? '',
+      gender: user?.patient?.gender ?? undefined,
+      blood_type: user?.patient?.blood_type ?? undefined,
+      allergies: user?.patient?.allergies ?? '',
     },
   })
 
@@ -105,10 +116,24 @@ export default function PatientSettingsPage() {
       full_name: data.full_name,
       phone: data.phone,
       address: data.address,
+      date_of_birth: data.date_of_birth,
+      nik: data.nik,
+      gender: data.gender,
+      blood_type: data.blood_type,
+      allergies: data.allergies,
     }),
-    onSuccess: (res) => {
-      if (res.data?.data) {
-        updateUser(res.data.data)
+    onSuccess: async (res) => {
+      // Refetch full profile to get updated patient data
+      try {
+        const profileRes = await authApi.getProfile()
+        if (profileRes.data?.data) {
+          updateUser(profileRes.data.data)
+        }
+      } catch {
+        // Fallback to response data if refetch fails
+        if (res.data?.data) {
+          updateUser(res.data.data)
+        }
       }
       toast.success('Profil Diperbarui', 'Data diri Anda berhasil disimpan')
     },
@@ -235,7 +260,7 @@ export default function PatientSettingsPage() {
                 )}
               </div>
 
-              {/* Editable: Email */}
+              {/* Read-only: Email */}
               <div className="space-y-2">
                 <label
                   htmlFor="profile-email"
@@ -249,7 +274,9 @@ export default function PatientSettingsPage() {
                   type="email"
                   {...profileForm.register('email')}
                   placeholder="email@contoh.com"
+                  disabled
                   aria-describedby={profileForm.formState.errors.email ? 'email-error' : undefined}
+                  className="opacity-60 cursor-not-allowed"
                 />
                 {profileForm.formState.errors.email && (
                   <p id="email-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
@@ -280,22 +307,6 @@ export default function PatientSettingsPage() {
                 )}
               </div>
 
-              {/* Editable: Emergency Contact */}
-              <div className="space-y-2">
-                <label
-                  htmlFor="profile-emergency"
-                  className="text-label-sm"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  Kontak Darurat
-                </label>
-                <Input
-                  id="profile-emergency"
-                  {...profileForm.register('emergency_contact')}
-                  placeholder="Nama & nomor kontak darurat"
-                />
-              </div>
-
               {/* Editable: Address (full width) */}
               <div className="space-y-2 sm:col-span-2">
                 <label
@@ -312,7 +323,7 @@ export default function PatientSettingsPage() {
                 />
               </div>
 
-              {/* Immutable: Date of Birth — Requirement 20.1 (read-only) */}
+              {/* Editable: Date of Birth */}
               <div className="space-y-2">
                 <label
                   htmlFor="profile-dob"
@@ -323,19 +334,18 @@ export default function PatientSettingsPage() {
                 </label>
                 <Input
                   id="profile-dob"
-                  value={user?.patient?.date_of_birth ?? '—'}
-                  readOnly
-                  disabled
-                  className="cursor-not-allowed opacity-70"
-                  title="Field ini tidak dapat diubah"
-                  aria-label="Tanggal lahir (tidak dapat diubah)"
+                  type="date"
+                  {...profileForm.register('date_of_birth')}
+                  aria-describedby={profileForm.formState.errors.date_of_birth ? 'dob-error' : undefined}
                 />
-                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                  Tidak dapat diubah
-                </p>
+                {profileForm.formState.errors.date_of_birth && (
+                  <p id="dob-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
+                    {profileForm.formState.errors.date_of_birth.message}
+                  </p>
+                )}
               </div>
 
-              {/* Immutable: NIK — Requirement 20.1 (read-only) */}
+              {/* Editable: NIK */}
               <div className="space-y-2">
                 <label
                   htmlFor="profile-nik"
@@ -346,16 +356,94 @@ export default function PatientSettingsPage() {
                 </label>
                 <Input
                   id="profile-nik"
-                  value={user?.nik ?? '—'}
-                  readOnly
-                  disabled
-                  className="cursor-not-allowed opacity-70"
-                  title="Field ini tidak dapat diubah"
-                  aria-label="NIK (tidak dapat diubah)"
+                  type="text"
+                  {...profileForm.register('nik')}
+                  placeholder="Minimal 10 digit"
+                  aria-describedby={profileForm.formState.errors.nik ? 'nik-error' : undefined}
                 />
-                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                  Tidak dapat diubah
-                </p>
+                {profileForm.formState.errors.nik && (
+                  <p id="nik-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
+                    {profileForm.formState.errors.nik.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Editable: Gender */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="profile-gender"
+                  className="text-label-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Jenis Kelamin
+                </label>
+                <select
+                  id="profile-gender"
+                  {...profileForm.register('gender')}
+                  className="h-12 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-raised)] px-4 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <option value="">Pilih jenis kelamin</option>
+                  <option value="male">Laki-laki</option>
+                  <option value="female">Perempuan</option>
+                </select>
+                {profileForm.formState.errors.gender && (
+                  <p id="gender-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
+                    {profileForm.formState.errors.gender.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Editable: Blood Type */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="profile-blood-type"
+                  className="text-label-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Golongan Darah
+                </label>
+                <select
+                  id="profile-blood-type"
+                  {...profileForm.register('blood_type')}
+                  className="h-12 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-raised)] px-4 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <option value="">Pilih golongan darah</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="AB">AB</option>
+                  <option value="O">O</option>
+                </select>
+                {profileForm.formState.errors.blood_type && (
+                  <p id="blood-type-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
+                    {profileForm.formState.errors.blood_type.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Editable: Allergies (full width) */}
+              <div className="space-y-2 sm:col-span-2">
+                <label
+                  htmlFor="profile-allergies"
+                  className="text-label-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Alergi
+                </label>
+                <textarea
+                  id="profile-allergies"
+                  {...profileForm.register('allergies')}
+                  placeholder="Masukkan informasi alergi (jika ada)"
+                  rows={3}
+                  className="w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-raised)] px-4 py-3 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent resize-none"
+                  style={{ color: 'var(--text-primary)' }}
+                />
+                {profileForm.formState.errors.allergies && (
+                  <p id="allergies-error" className="text-xs" style={{ color: 'var(--accent-danger)' }}>
+                    {profileForm.formState.errors.allergies.message}
+                  </p>
+                )}
               </div>
             </div>
 

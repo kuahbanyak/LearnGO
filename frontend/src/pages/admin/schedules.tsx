@@ -15,7 +15,7 @@ import { ConfirmationDialog } from '@/components/shared/confirmation-dialog'
 import { DAYS } from '@/lib/utils'
 import { queryKeys, queryConfig } from '@/lib/query-keys'
 import { scheduleEntrySchema } from '@/lib/validations/schemas'
-import type { Doctor, DoctorSchedule } from '@/types'
+import type { Doctor, DoctorSchedule, ScheduleAvailability } from '@/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -368,11 +368,12 @@ function ScheduleModal({ schedule, doctorId, existingSchedules, onClose, onSaved
 
 interface WeeklyGridProps {
   schedules: DoctorSchedule[]
+  availabilities: ScheduleAvailability[]
   onEdit: (schedule: DoctorSchedule) => void
   onDelete: (schedule: DoctorSchedule) => void
 }
 
-function WeeklyGrid({ schedules, onEdit, onDelete }: WeeklyGridProps) {
+function WeeklyGrid({ schedules, availabilities, onEdit, onDelete }: WeeklyGridProps) {
   // Group schedules by day of week
   const byDay = useMemo(() => {
     const map: Record<number, DoctorSchedule[]> = {}
@@ -386,6 +387,18 @@ function WeeklyGrid({ schedules, onEdit, onDelete }: WeeklyGridProps) {
     Object.values(map).forEach((arr) => arr.sort((a, b) => a.start_time.localeCompare(b.start_time)))
     return map
   }, [schedules])
+
+  // Get today's availability for each schedule
+  const todayAvailability = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0]
+    const map: Record<string, ScheduleAvailability> = {}
+    availabilities.forEach((avail) => {
+      if (avail.date === today) {
+        map[avail.schedule_id] = avail
+      }
+    })
+    return map
+  }, [availabilities])
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
@@ -422,9 +435,15 @@ function WeeklyGrid({ schedules, onEdit, onDelete }: WeeklyGridProps) {
                   <p className="text-[11px] font-medium" style={{ color: 'var(--text-primary)' }}>
                     {s.start_time} – {s.end_time}
                   </p>
-                  <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-                    Maks {s.max_patient} pasien
-                  </p>
+                  {todayAvailability[s.id] ? (
+                    <p className="text-[10px]" style={{ color: todayAvailability[s.id].available_count > 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                      {todayAvailability[s.id].available_count} tersedia dari {s.max_patient}
+                    </p>
+                  ) : (
+                    <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                      Maks {s.max_patient} pasien
+                    </p>
+                  )}
                   <Badge
                     variant={s.is_active ? 'default' : 'secondary'}
                     className="text-[9px] mt-1"
@@ -696,12 +715,28 @@ export default function AdminSchedulesPage() {
   })
   const schedules: DoctorSchedule[] = schedulesData?.data?.data ?? []
 
+  // Fetch availability for next 7 days
+  const today = new Date().toISOString().split('T')[0]
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 6)
+  const endDateStr = endDate.toISOString().split('T')[0]
+
+  const { data: availabilityData } = useQuery({
+    queryKey: ['schedules', 'availability', selectedDoctorId, today, endDateStr],
+    queryFn: () => scheduleApi.getAvailability(selectedDoctorId, { start_date: today, end_date: endDateStr }),
+    enabled: !!selectedDoctorId,
+    staleTime: 30000, // 30 seconds - refresh more frequently for availability
+    gcTime: 60000,
+  })
+  const availabilities: ScheduleAvailability[] = availabilityData?.data?.data ?? []
+
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: scheduleApi.delete,
     onSuccess: () => {
       toast.success('Jadwal berhasil dihapus')
       queryClient.invalidateQueries({ queryKey: queryKeys.schedules.byDoctor(selectedDoctorId) })
+      queryClient.invalidateQueries({ queryKey: ['schedules', 'availability', selectedDoctorId] })
       setDeleteTarget(null)
     },
     onError: () => {
@@ -712,6 +747,7 @@ export default function AdminSchedulesPage() {
 
   const handleSaved = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.schedules.byDoctor(selectedDoctorId) })
+    queryClient.invalidateQueries({ queryKey: ['schedules', 'availability', selectedDoctorId] })
   }
 
   const handleEdit = (schedule: DoctorSchedule) => {
@@ -801,6 +837,7 @@ export default function AdminSchedulesPage() {
               ) : (
                 <WeeklyGrid
                   schedules={schedules}
+                  availabilities={availabilities}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />

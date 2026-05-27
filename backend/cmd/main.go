@@ -71,7 +71,7 @@ func main() {
 	authUC := usecase.NewAuthUsecase(userRepo, patientRepo, roleRepo, db)
 	patientUC := usecase.NewPatientUsecase(patientRepo)
 	doctorUC := usecase.NewDoctorUsecase(doctorRepo, userRepo, roleRepo)
-	scheduleUC := usecase.NewScheduleUsecase(scheduleRepo, doctorRepo)
+	scheduleUC := usecase.NewScheduleUsecase(scheduleRepo, doctorRepo, appointmentRepo)
 	appointmentUC := usecase.NewAppointmentUsecase(appointmentRepo, scheduleRepo, patientRepo, doctorRepo, db)
 	medRecordUC := usecase.NewMedicalRecordUsecase(medRecordRepo, appointmentRepo, doctorRepo)
 	dashboardUC := usecase.NewDashboardUsecase(db, doctorRepo, patientRepo)
@@ -145,6 +145,7 @@ func main() {
 	// Schedules (public read)
 	protected.GET("/schedules", scheduleH.GetAll)
 	protected.GET("/schedules/doctor/:id", scheduleH.GetByDoctor)
+	protected.GET("/schedules/doctor/:id/availability", scheduleH.GetAvailability)
 
 	// ── Admin only ──
 	adminOnly := protected.Group("/")

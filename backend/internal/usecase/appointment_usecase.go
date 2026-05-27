@@ -96,13 +96,7 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 		return nil, errors.New("appointment date does not match schedule day")
 	}
 
-	// Check quota
-	count, _ := u.appointmentRepo.CountByScheduleAndDate(scheduleID, appointmentDate)
-	if int(count) >= schedule.MaxPatient {
-		return nil, errors.New("appointment quota for this schedule is full")
-	}
-
-	// Check if patient already has appointment on the same day with same doctor
+	// Check if patient already has appointment on the same day with same doctor (pre-check for fast fail)
 	existing, _ := u.appointmentRepo.FindByDoctorIDAndDate(doctorID, appointmentDate)
 	for _, a := range existing {
 		if a.PatientID == patient.ID && a.Status != entity.StatusCancelled {
@@ -110,14 +104,30 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 		}
 	}
 
-	// Use transaction for atomic queue number generation and appointment creation
+	// Use transaction for atomic quota check, queue number generation, and appointment creation
 	var appointment *entity.Appointment
 	err = u.db.Transaction(func(tx *gorm.DB) error {
 		// Lock the schedule row to prevent concurrent bookings
-		var schedule entity.DoctorSchedule
+		var lockedSchedule entity.DoctorSchedule
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&schedule, "id = ?", scheduleID).Error; err != nil {
+			First(&lockedSchedule, "id = ?", scheduleID).Error; err != nil {
 			return errors.New("failed to lock schedule")
+		}
+
+		// ✅ RACE-SAFE: Check quota INSIDE transaction with row lock held
+		var count int64
+		startOfDay := time.Date(appointmentDate.Year(), appointmentDate.Month(), appointmentDate.Day(), 0, 0, 0, 0, appointmentDate.Location())
+		endOfDay := startOfDay.Add(24 * time.Hour)
+		
+		if err := tx.Model(&entity.Appointment{}).
+			Where("schedule_id = ? AND appointment_date >= ? AND appointment_date < ? AND status != ?",
+				scheduleID, startOfDay, endOfDay, entity.StatusCancelled).
+			Count(&count).Error; err != nil {
+			return errors.New("failed to check quota")
+		}
+
+		if int(count) >= lockedSchedule.MaxPatient {
+			return errors.New("appointment quota for this schedule is full")
 		}
 
 		// Generate queue number within transaction

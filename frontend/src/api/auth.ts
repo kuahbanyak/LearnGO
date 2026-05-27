@@ -9,6 +9,7 @@ export const authApi = {
     full_name: string
     phone?: string
     nik?: string
+    date_of_birth?: string
     gender?: string
     address?: string
     blood_type?: string

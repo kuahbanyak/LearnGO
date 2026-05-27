@@ -10,7 +10,7 @@
  * Requirements: 11.5, 11.6
  */
 
-const FONT_CACHE = 'mediqueue-fonts-v1'
+const FONT_CACHE = 'mediqueue-fonts-v2'
 const FONT_ORIGINS = [
   'https://fonts.gstatic.com',
   'https://fonts.googleapis.com',

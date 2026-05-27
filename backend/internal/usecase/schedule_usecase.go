@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"errors"
+	"time"
 
 	"mediqueue/internal/dto"
 	"mediqueue/internal/entity"
@@ -18,15 +19,21 @@ type ScheduleUsecase interface {
 	Update(id uuid.UUID, req *dto.UpdateScheduleRequest) (*entity.DoctorSchedule, error)
 	Delete(id uuid.UUID) error
 	Toggle(id uuid.UUID) (*entity.DoctorSchedule, error)
+	GetAvailability(doctorID uuid.UUID, startDate, endDate time.Time) ([]dto.ScheduleAvailabilityResponse, error)
 }
 
 type scheduleUsecase struct {
-	scheduleRepo repository.ScheduleRepository
-	doctorRepo   repository.DoctorRepository
+	scheduleRepo    repository.ScheduleRepository
+	doctorRepo      repository.DoctorRepository
+	appointmentRepo repository.AppointmentRepository
 }
 
-func NewScheduleUsecase(scheduleRepo repository.ScheduleRepository, doctorRepo repository.DoctorRepository) ScheduleUsecase {
-	return &scheduleUsecase{scheduleRepo: scheduleRepo, doctorRepo: doctorRepo}
+func NewScheduleUsecase(scheduleRepo repository.ScheduleRepository, doctorRepo repository.DoctorRepository, appointmentRepo repository.AppointmentRepository) ScheduleUsecase {
+	return &scheduleUsecase{
+		scheduleRepo:    scheduleRepo,
+		doctorRepo:      doctorRepo,
+		appointmentRepo: appointmentRepo,
+	}
 }
 
 func (u *scheduleUsecase) Create(req *dto.CreateScheduleRequest) (*entity.DoctorSchedule, error) {
@@ -119,4 +126,46 @@ func (u *scheduleUsecase) Toggle(id uuid.UUID) (*entity.DoctorSchedule, error) {
 		return nil, errors.New("failed to toggle schedule")
 	}
 	return schedule, nil
+}
+
+func (u *scheduleUsecase) GetAvailability(doctorID uuid.UUID, startDate, endDate time.Time) ([]dto.ScheduleAvailabilityResponse, error) {
+	// Get all schedules for the doctor
+	schedules, err := u.scheduleRepo.FindByDoctorID(doctorID)
+	if err != nil {
+		return nil, errors.New("failed to retrieve schedules")
+	}
+
+	var availabilities []dto.ScheduleAvailabilityResponse
+
+	// Iterate through each date in the range
+	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
+		dayOfWeek := int(date.Weekday())
+
+		// Find schedules that match this day of week
+		for _, schedule := range schedules {
+			if schedule.DayOfWeek == dayOfWeek {
+				// Count bookings for this schedule on this date
+				bookedCount, _ := u.appointmentRepo.CountByScheduleAndDate(schedule.ID, date)
+				availableCount := schedule.MaxPatient - int(bookedCount)
+				if availableCount < 0 {
+					availableCount = 0
+				}
+
+				availabilities = append(availabilities, dto.ScheduleAvailabilityResponse{
+					ScheduleID:     schedule.ID.String(),
+					DoctorID:       schedule.DoctorID.String(),
+					DayOfWeek:      schedule.DayOfWeek,
+					StartTime:      schedule.StartTime,
+					EndTime:        schedule.EndTime,
+					MaxPatient:     schedule.MaxPatient,
+					IsActive:       schedule.IsActive,
+					Date:           date.Format("2006-01-02"),
+					BookedCount:    int(bookedCount),
+					AvailableCount: availableCount,
+				})
+			}
+		}
+	}
+
+	return availabilities, nil
 }

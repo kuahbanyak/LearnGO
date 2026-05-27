@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  Heart, ArrowRight, User, Mail, Phone, Lock, Calendar,
+  Heart, ArrowRight, User, Mail, Phone, Lock, Calendar, CreditCard,
   ShieldCheck, Clock, Users
 } from 'lucide-react'
 import { authApi } from '@/api/auth'
@@ -21,6 +21,10 @@ const registerSchema = z.object({
   email: z.string().email('Format email tidak valid'),
   phone: z.string().min(1, 'Nomor telepon wajib diisi'),
   date_of_birth: z.string().min(1, 'Tanggal lahir wajib diisi'),
+  nik: z.string().refine(
+    (val) => val === '' || (val.length >= 10 && val.length <= 16),
+    { message: 'NIK harus 10-16 digit' }
+  ).optional(),
   password: z.string()
     .min(8, 'Password minimal 8 karakter')
     .regex(/[a-zA-Z]/, 'Password harus mengandung minimal satu huruf')
@@ -102,6 +106,8 @@ export default function RegisterPage() {
       password: data.password,
       full_name: data.full_name,
       phone: data.phone,
+      date_of_birth: data.date_of_birth,
+      nik: data.nik,
     })
   }
 
@@ -320,6 +326,28 @@ export default function RegisterPage() {
               </div>
               {errors.date_of_birth && (
                 <p id="dob-error" className="text-xs text-red-500 mt-1">{errors.date_of_birth.message}</p>
+              )}
+            </div>
+
+            {/* NIK */}
+            <div className="space-y-1.5">
+              <label htmlFor="register-nik" className="text-sm font-semibold text-slate-700">
+                NIK (Opsional)
+              </label>
+              <div className="relative">
+                <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+                <Input
+                  id="register-nik"
+                  type="text"
+                  placeholder="Minimal 10 digit"
+                  className="pl-10"
+                  aria-invalid={!!errors.nik}
+                  aria-describedby={errors.nik ? 'nik-error' : undefined}
+                  {...register('nik')}
+                />
+              </div>
+              {errors.nik && (
+                <p id="nik-error" className="text-xs text-red-500 mt-1">{errors.nik.message}</p>
               )}
             </div>
 

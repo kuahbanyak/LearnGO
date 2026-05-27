@@ -57,6 +57,19 @@ export interface DoctorSchedule {
   doctor?: Doctor
 }
 
+export interface ScheduleAvailability {
+  schedule_id: string
+  doctor_id: string
+  day_of_week: number
+  start_time: string
+  end_time: string
+  max_patient: number
+  is_active: boolean
+  date: string // YYYY-MM-DD format
+  booked_count: number
+  available_count: number
+}
+
 export type AppointmentStatus = 'waiting' | 'in_progress' | 'completed' | 'cancelled'
 
 export interface Appointment {

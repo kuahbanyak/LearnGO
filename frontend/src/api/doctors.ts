@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { ApiResponse, PaginatedResponse, Doctor, DoctorSchedule } from '@/types'
+import type { ApiResponse, PaginatedResponse, Doctor, DoctorSchedule, ScheduleAvailability } from '@/types'
 
 export const doctorApi = {
   getAll: (params?: { page?: number; per_page?: number }) =>
@@ -28,6 +28,9 @@ export const scheduleApi = {
 
   getByDoctor: (doctorId: string) =>
     apiClient.get<ApiResponse<DoctorSchedule[]>>(`/schedules/doctor/${doctorId}`),
+
+  getAvailability: (doctorId: string, params?: { start_date?: string; end_date?: string }) =>
+    apiClient.get<ApiResponse<ScheduleAvailability[]>>(`/schedules/doctor/${doctorId}/availability`, { params }),
 
   create: (data: {
     doctor_id: string

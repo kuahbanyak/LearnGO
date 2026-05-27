@@ -7,6 +7,7 @@ import (
 	apperrors "mediqueue/pkg/errors"
 	"mediqueue/pkg/logger"
 	"mediqueue/pkg/utils"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -70,6 +71,16 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 		nikPtr = &req.NIK
 	}
 
+	var dateOfBirthPtr *time.Time
+	if req.DateOfBirth != "" {
+		parsedDate, err := time.Parse("2006-01-02", req.DateOfBirth)
+		if err != nil {
+			logger.Warn("Failed to parse date of birth", zap.Error(err), zap.String("date", req.DateOfBirth))
+		} else {
+			dateOfBirthPtr = &parsedDate
+		}
+	}
+
 	tx := u.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -94,14 +105,15 @@ func (u *authUsecase) Register(req *dto.RegisterRequest) (*entity.User, error) {
 	}
 
 	patient := &entity.Patient{
-		ID:        uuid.New(),
-		UserID:    userID,
-		FullName:  req.FullName,
-		Phone:     req.Phone,
-		NIK:       nikPtr,
-		Gender:    entity.Gender(req.Gender),
-		Address:   req.Address,
-		BloodType: entity.BloodType(req.BloodType),
+		ID:          uuid.New(),
+		UserID:      userID,
+		FullName:    req.FullName,
+		Phone:       req.Phone,
+		NIK:         nikPtr,
+		DateOfBirth: dateOfBirthPtr,
+		Gender:      entity.Gender(req.Gender),
+		Address:     req.Address,
+		BloodType:   entity.BloodType(req.BloodType),
 	}
 
 	if err := tx.Create(patient).Error; err != nil {
@@ -180,6 +192,14 @@ func (u *authUsecase) UpdateProfile(userID uuid.UUID, req *dto.UpdateProfileRequ
 	}
 	if req.NIK != "" {
 		patient.NIK = &req.NIK
+	}
+	if req.DateOfBirth != "" {
+		parsedDate, err := time.Parse("2006-01-02", req.DateOfBirth)
+		if err != nil {
+			logger.Warn("Failed to parse date of birth in update", zap.Error(err), zap.String("date", req.DateOfBirth))
+		} else {
+			patient.DateOfBirth = &parsedDate
+		}
 	}
 	if req.Gender != "" {
 		patient.Gender = entity.Gender(req.Gender)

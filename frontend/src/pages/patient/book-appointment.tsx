@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -13,9 +13,12 @@ import {
   Stethoscope,
   CalendarDays,
   ClipboardCheck,
+  Download,
+  QrCode,
 } from 'lucide-react'
 import { doctorApi, scheduleApi } from '@/api/doctors'
 import { appointmentApi } from '@/api/appointments'
+import { checkInApi } from '@/api/checkin'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/store/auth-store'
@@ -24,8 +27,8 @@ import { PageHeader } from '@/components/shared/page-header'
 import { ErrorState } from '@/components/shared/error-state'
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { StarRatingDisplay } from '@/components/shared/star-rating'
-import SymptomScreeningForm from '@/components/shared/symptom-screening-form'
-import type { Doctor, DoctorSchedule } from '@/types'
+// import SymptomScreeningForm from '@/components/shared/symptom-screening-form'
+import type { Doctor, DoctorSchedule, ScheduleAvailability } from '@/types'
 
 // ── Types ──
 
@@ -127,7 +130,8 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 function generateCalendarDays(
   selectedDate: string,
   availableDays: number[],
-  schedulesForDay: Map<number, DoctorSchedule[]>
+  schedulesForDay: Map<number, DoctorSchedule[]>,
+  availabilities: ScheduleAvailability[]
 ): CalendarDay[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -140,7 +144,19 @@ function generateCalendarDays(
     const dateStr = formatDateStr(date)
     const isAvailable = availableDays.includes(dayOfWeek)
     const schedules = schedulesForDay.get(dayOfWeek) ?? []
-    const slotCount = schedules.reduce((sum, s) => sum + s.max_patient, 0)
+    
+    // Calculate available slots from availability data
+    let slotCount = 0
+    if (isAvailable) {
+      const dateAvailabilities = availabilities.filter(a => a.date === dateStr)
+      if (dateAvailabilities.length > 0) {
+        // Use actual available count from API
+        slotCount = dateAvailabilities.reduce((sum, a) => sum + a.available_count, 0)
+      } else {
+        // Fallback to max capacity if no availability data yet
+        slotCount = schedules.reduce((sum, s) => sum + s.max_patient, 0)
+      }
+    }
 
     days.push({
       date,
@@ -149,7 +165,7 @@ function generateCalendarDays(
       isToday: i === 0,
       isSelected: dateStr === selectedDate,
       isDisabled: !isAvailable,
-      slotCount: isAvailable ? slotCount : 0,
+      slotCount,
     })
   }
 
@@ -192,7 +208,37 @@ export default function BookAppointmentPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [slotError, setSlotError] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [bookingResult, setBookingResult] = useState<{ queueNumber?: number } | null>(null)
+  const [bookingResult, setBookingResult] = useState<{ queueNumber?: number; appointmentId?: string } | null>(null)
+  
+  // QR Code state and fetching
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [qrCodeLoading, setQrCodeLoading] = useState(false)
+
+  // Fetch QR code when booking succeeds and we have appointmentId
+  useEffect(() => {
+    if (success && bookingResult?.appointmentId) {
+      setQrCodeLoading(true)
+      checkInApi.getQRCode(bookingResult.appointmentId)
+        .then((response) => {
+          const url = URL.createObjectURL(response.data)
+          setQrCodeUrl(url)
+        })
+        .catch((error) => {
+          console.error('Failed to fetch QR code:', error)
+          toast.error('QR Code Error', 'Gagal memuat QR code')
+        })
+        .finally(() => {
+          setQrCodeLoading(false)
+        })
+    }
+    
+    // Cleanup: revoke object URL when component unmounts or success changes
+    return () => {
+      if (qrCodeUrl) {
+        URL.revokeObjectURL(qrCodeUrl)
+      }
+    }
+  }, [success, bookingResult?.appointmentId, qrCodeUrl])
 
   // ── Data Fetching ──
 
@@ -211,9 +257,24 @@ export default function BookAppointmentPage() {
     gcTime: GC_TIME_STATIC,
   })
 
+  // Fetch availability for next 30 days
+  const today = new Date().toISOString().split('T')[0]
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 29)
+  const endDateStr = endDate.toISOString().split('T')[0]
+
+  const { data: availabilityData, refetch: refetchAvailability } = useQuery({
+    queryKey: ['schedules', 'availability', wizardState.selectedDoctor?.id, today, endDateStr],
+    queryFn: () => scheduleApi.getAvailability(wizardState.selectedDoctor!.id, { start_date: today, end_date: endDateStr }),
+    enabled: !!wizardState.selectedDoctor,
+    staleTime: 30000, // 30 seconds - refresh more frequently
+    gcTime: 60000,
+  })
+
   const doctors: Doctor[] = doctorsData?.data?.data ?? []
   const schedules: DoctorSchedule[] = schedulesData?.data?.data ?? []
   const activeSchedules = schedules.filter(s => s.is_active)
+  const availabilities: ScheduleAvailability[] = availabilityData?.data?.data ?? []
 
   // ── Derived Data ──
 
@@ -252,8 +313,8 @@ export default function BookAppointmentPage() {
   }, [schedulesForDay])
 
   const calendarDays = useMemo(() => {
-    return generateCalendarDays(wizardState.selectedDate, availableDays, schedulesForDay)
-  }, [wizardState.selectedDate, availableDays, schedulesForDay])
+    return generateCalendarDays(wizardState.selectedDate, availableDays, schedulesForDay, availabilities)
+  }, [wizardState.selectedDate, availableDays, schedulesForDay, availabilities])
 
   const selectedDaySchedules = useMemo(() => {
     if (!wizardState.selectedDate) return []
@@ -261,6 +322,18 @@ export default function BookAppointmentPage() {
     const dayOfWeek = date.getDay()
     return schedulesForDay.get(dayOfWeek) ?? []
   }, [wizardState.selectedDate, schedulesForDay])
+
+  // Get availability for selected date
+  const selectedDateAvailability = useMemo(() => {
+    if (!wizardState.selectedDate) return new Map<string, ScheduleAvailability>()
+    const map = new Map<string, ScheduleAvailability>()
+    availabilities.forEach(avail => {
+      if (avail.date === wizardState.selectedDate) {
+        map.set(avail.schedule_id, avail)
+      }
+    })
+    return map
+  }, [wizardState.selectedDate, availabilities])
 
   // ── Booking Mutation ──
 
@@ -270,7 +343,10 @@ export default function BookAppointmentPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.appointments.my() })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.patient() })
       const data = response?.data?.data
-      setBookingResult({ queueNumber: data?.queue_number })
+      setBookingResult({ 
+        queueNumber: data?.queue_number,
+        appointmentId: data?.id 
+      })
       setSuccess(true)
       toast.success('Booking Berhasil!', 'Antrian Anda telah terdaftar.')
     },
@@ -283,6 +359,7 @@ export default function BookAppointmentPage() {
       if (status === 409 || msg.toLowerCase().includes('slot') || msg.toLowerCase().includes('penuh')) {
         setSlotError(true)
         refetchSchedules()
+        refetchAvailability()
       } else {
         toast.error('Gagal mendaftar antrian', msg)
       }
@@ -351,12 +428,19 @@ export default function BookAppointmentPage() {
   const handleSlotErrorRetry = useCallback(() => {
     setSlotError(false)
     refetchSchedules()
+    refetchAvailability()
     setStep(2)
-  }, [refetchSchedules])
+  }, [refetchSchedules, refetchAvailability])
 
   // ── Profile completeness check ──
-
-  const isProfileComplete = user?.nik && user?.phone && user?.full_name && user?.gender && user?.address && user?.blood_type
+  // Check both user and patient object for flexibility
+  const isProfileComplete = 
+    (user?.patient?.nik || user?.nik) && 
+    (user?.patient?.phone || user?.phone) && 
+    (user?.patient?.full_name || user?.full_name) && 
+    (user?.patient?.gender || user?.gender) && 
+    (user?.patient?.address || user?.address) && 
+    (user?.patient?.blood_type || user?.blood_type)
 
   if (!isProfileComplete) {
     return (
@@ -446,6 +530,101 @@ export default function BookAppointmentPage() {
               </span>
             )}
           </p>
+
+          {/* QR Code Section */}
+          <div
+            className="w-full max-w-md mt-6 p-6 rounded-[var(--radius-lg,1rem)]"
+            style={{
+              backgroundColor: 'var(--surface-raised, #ffffff)',
+              border: '1px solid var(--border-default, #e8e2da)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <QrCode className="size-5" style={{ color: 'var(--category-patient)' }} />
+              <h3
+                className="text-base font-semibold"
+                style={{ color: 'var(--text-primary, #1a1714)' }}
+              >
+                QR Code Check-in
+              </h3>
+            </div>
+
+            {qrCodeLoading && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <div
+                  className="animate-spin rounded-full h-8 w-8 border-b-2"
+                  style={{ borderColor: 'var(--category-patient)' }}
+                />
+                <p className="text-sm mt-3" style={{ color: 'var(--text-secondary)' }}>
+                  Memuat QR code...
+                </p>
+              </div>
+            )}
+
+            {!qrCodeLoading && qrCodeUrl && (
+              <div className="flex flex-col items-center">
+                <div
+                  className="p-4 rounded-[var(--radius-md)] mb-4"
+                  style={{
+                    backgroundColor: 'var(--surface-ground, #faf8f5)',
+                    border: '2px solid var(--border-default, #e8e2da)',
+                  }}
+                >
+                  <img
+                    src={qrCodeUrl}
+                    alt="QR Code untuk Check-in"
+                    className="w-48 h-48 object-contain"
+                  />
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => {
+                    if (qrCodeUrl) {
+                      const link = document.createElement('a')
+                      link.href = qrCodeUrl
+                      link.download = `qr-code-antrian-${bookingResult?.queueNumber || 'appointment'}.png`
+                      document.body.appendChild(link)
+                      link.click()
+                      document.body.removeChild(link)
+                      toast.success('QR Code Tersimpan', 'QR code berhasil diunduh')
+                    }
+                  }}
+                  leftIcon={<Download className="size-4" />}
+                  className="mb-4"
+                >
+                  Download QR Code
+                </Button>
+
+                <div
+                  className="text-left w-full p-4 rounded-[var(--radius-md)]"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--category-patient) 8%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--category-patient) 20%, transparent)',
+                  }}
+                >
+                  <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                    Cara Check-in:
+                  </p>
+                  <ol className="text-xs space-y-1" style={{ color: 'var(--text-secondary)' }}>
+                    <li>1. Datang ke klinik sesuai jadwal dokter</li>
+                    <li>2. Scan QR code ini di counter check-in atau kiosk</li>
+                    <li>3. Tunggu nomor antrian Anda dipanggil</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {!qrCodeLoading && !qrCodeUrl && (
+              <div className="text-center py-4">
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  QR code tidak tersedia. Anda dapat check-in manual di klinik.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3 mt-4">
             <Button
               variant="primary"
@@ -769,12 +948,25 @@ export default function BookAppointmentPage() {
                               >
                                 {schedule.start_time} - {schedule.end_time}
                               </p>
-                              <p
-                                className="text-xs"
-                                style={{ color: 'var(--text-tertiary, #6b6358)' }}
-                              >
-                                Maks {schedule.max_patient} pasien
-                              </p>
+                              {selectedDateAvailability.has(schedule.id) ? (
+                                <p
+                                  className="text-xs"
+                                  style={{ 
+                                    color: selectedDateAvailability.get(schedule.id)!.available_count > 0 
+                                      ? 'var(--accent-success, #059669)' 
+                                      : 'var(--accent-danger, #dc2626)' 
+                                  }}
+                                >
+                                  {selectedDateAvailability.get(schedule.id)!.available_count} tersedia dari {schedule.max_patient}
+                                </p>
+                              ) : (
+                                <p
+                                  className="text-xs"
+                                  style={{ color: 'var(--text-tertiary, #6b6358)' }}
+                                >
+                                  Maks {schedule.max_patient} pasien
+                                </p>
+                              )}
                             </div>
                           </div>
                           {wizardState.selectedSchedule?.id === schedule.id && (
@@ -907,32 +1099,6 @@ export default function BookAppointmentPage() {
                     </span>
                   </div>
                 </div>
-              </div>
-
-              {/* Symptom Screening Form */}
-              <div
-                className="rounded-[var(--radius-lg,1rem)] p-5"
-                style={{
-                  backgroundColor: 'var(--surface-raised, #ffffff)',
-                  border: '1px solid var(--border-default, #e8e2da)',
-                }}
-              >
-                <h4
-                  className="text-sm font-semibold mb-4"
-                  style={{ color: 'var(--text-primary, #1a1714)' }}
-                >
-                  Screening Gejala (Opsional)
-                </h4>
-                <SymptomScreeningForm
-                  appointmentId=""
-                  doctorName={wizardState.selectedDoctor?.user?.full_name ?? wizardState.selectedDoctor?.full_name ?? ''}
-                  onSuccess={() => {
-                    toast.success('Gejala Tercatat', 'Data gejala akan dikirim setelah booking berhasil.')
-                  }}
-                  onCancel={() => {
-                    // Skip symptom screening - proceed to submit
-                  }}
-                />
               </div>
 
               {/* Submit Button */}
