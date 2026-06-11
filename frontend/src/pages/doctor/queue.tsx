@@ -9,11 +9,13 @@ import {
   MoreVertical,
   XCircle,
   RotateCcw,
+  X,
 } from 'lucide-react'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/shared/page-header'
+import { ConfirmationDialog } from '@/components/shared/confirmation-dialog'
 import { useRealtimeSync, type RealtimeMessage } from '@/hooks/use-realtime-sync'
 import { queryKeys, queryConfig } from '@/lib/query-keys'
 import { toast } from '@/hooks/use-toast'
@@ -31,6 +33,7 @@ interface PatientCardProps {
   onMarkInConsultation?: () => void
   onComplete?: () => void
   onNoShow?: () => void
+  onCancel?: () => void
   isAnimating?: boolean
 }
 
@@ -54,6 +57,7 @@ function PatientCard({
   onMarkInConsultation,
   onComplete,
   onNoShow,
+  onCancel,
   isAnimating,
 }: PatientCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -192,6 +196,17 @@ function PatientCard({
                     Tandai Tidak Hadir
                   </button>
                 )}
+                {onCancel && (
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-[var(--surface-sunken)]"
+                    style={{ color: 'var(--accent-danger)' }}
+                    onClick={() => { onCancel(); setMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    <X className="size-4" />
+                    Batalkan Antrian
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -253,6 +268,7 @@ export default function DoctorQueuePage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
   const [completingAppointment, setCompletingAppointment] = useState<Appointment | null>(null)
+  const [cancellingAppointment, setCancellingAppointment] = useState<Appointment | null>(null)
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set())
 
   // Track in-progress form to preserve on realtime reconciliation
@@ -330,6 +346,20 @@ export default function DoctorQueuePage() {
     },
   })
 
+  // ── Cancel Mutation ──
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => appointmentApi.cancel(id, 'Dibatalkan oleh dokter'),
+    onSuccess: () => {
+      toast.success('Antrian dibatalkan', 'Antrian pasien telah dibatalkan.')
+      queryClient.invalidateQueries({ queryKey: queryKeys.appointments.todayQueue() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.doctor() })
+    },
+    onError: () => {
+      toast.error('Gagal membatalkan', 'Terjadi kesalahan saat membatalkan antrian. Silakan coba lagi.')
+    },
+  })
+
   // ── Actions ──
 
   const animateTransition = useCallback((id: string, callback: () => void) => {
@@ -389,6 +419,17 @@ export default function DoctorQueuePage() {
       statusMutation.mutate({ id: appointment.id, status: 'no_show' })
     })
   }, [animateTransition, statusMutation])
+
+  const handleCancel = useCallback((appointment: Appointment) => {
+    setCancellingAppointment(appointment)
+  }, [])
+
+  const handleCancelConfirm = useCallback(() => {
+    if (cancellingAppointment) {
+      cancelMutation.mutate(cancellingAppointment.id)
+      setCancellingAppointment(null)
+    }
+  }, [cancellingAppointment, cancelMutation])
 
   // ── Realtime Sync ──
 
@@ -601,6 +642,7 @@ export default function DoctorQueuePage() {
                     lane="waiting"
                     onMarkInConsultation={() => markInConsultation(appt)}
                     onNoShow={() => markNoShow(appt)}
+                    onCancel={() => handleCancel(appt)}
                     isAnimating={animatingIds.has(appt.id)}
                   />
                 ))
@@ -653,6 +695,7 @@ export default function DoctorQueuePage() {
                     lane="in_progress"
                     onComplete={() => handleComplete(appt)}
                     onNoShow={() => markNoShow(appt)}
+                    onCancel={() => handleCancel(appt)}
                     isAnimating={animatingIds.has(appt.id)}
                   />
                 ))
@@ -711,6 +754,19 @@ export default function DoctorQueuePage() {
           onSkip={handleMedicalRecordSkip}
         />
       )}
+
+      {/* Cancel Confirmation Dialog */}
+      <ConfirmationDialog
+        open={!!cancellingAppointment}
+        onOpenChange={(open) => !open && setCancellingAppointment(null)}
+        title="Batalkan Antrian?"
+        message={`Apakah Anda yakin ingin membatalkan antrian pasien ${cancellingAppointment?.patient?.user?.full_name ?? 'ini'}?`}
+        confirmLabel="Ya, Batalkan"
+        cancelLabel="Tidak"
+        destructive={true}
+        onConfirm={handleCancelConfirm}
+        loading={cancelMutation.isPending}
+      />
     </div>
   )
 }

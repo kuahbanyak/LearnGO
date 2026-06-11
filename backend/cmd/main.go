@@ -87,7 +87,7 @@ func main() {
 	doctorH := handler.NewDoctorHandler(doctorUC)
 	scheduleH := handler.NewScheduleHandler(scheduleUC)
 	appointmentH := handler.NewAppointmentHandler(appointmentUC)
-	medRecordH := handler.NewMedicalRecordHandler(medRecordUC, patientRepo)
+	medRecordH := handler.NewMedicalRecordHandler(medRecordUC, patientRepo, doctorRepo)
 	dashboardH := handler.NewDashboardHandler(dashboardUC)
 	userH := handler.NewUserHandler(userUC)
 	analyticsH := handler.NewAnalyticsHandler(analyticsUC)
@@ -195,6 +195,8 @@ func main() {
 		doctorOnly.GET("/appointments/today", appointmentH.GetTodayQueue)
 		doctorOnly.PATCH("/appointments/:id/status", appointmentH.UpdateStatus)
 		doctorOnly.POST("/medical-records", medRecordH.Create)
+		doctorOnly.PUT("/medical-records/:id", medRecordH.Update)
+		doctorOnly.GET("/medical-records/authored", medRecordH.GetMyMedicalRecordsAsDoctor)
 		doctorOnly.GET("/medical-records/patient/:id", medRecordH.GetByPatient)
 		doctorOnly.GET("/dashboard/doctor", dashboardH.GetDoctorStats)
 	}
@@ -225,6 +227,7 @@ func main() {
 
 	// QR Check-in
 	protected.GET("/appointments/:id/qr", checkInH.GetQRCode) // Patient/Admin
+	protected.GET("/appointments/:id/checkin-token", checkInH.GetCheckInToken) // Patient/Admin
 	protected.GET("/appointments/:id/check-in-status", checkInH.GetCheckInStatus)
 	r.PATCH("/api/v1/check-in/:token", checkInH.CheckIn) // Public endpoint for scanning
 

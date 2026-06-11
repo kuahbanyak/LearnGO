@@ -219,7 +219,10 @@ func (u *appointmentUsecase) UpdateStatus(id uuid.UUID, req *dto.UpdateAppointme
 	now := time.Now()
 	switch newStatus {
 	case entity.StatusInProgress:
-		app.CheckedInAt = &now
+		// Only set CheckedInAt if not already set (e.g., patient didn't use QR check-in)
+		if app.CheckedInAt == nil {
+			app.CheckedInAt = &now
+		}
 	case entity.StatusCompleted:
 		app.CompletedAt = &now
 	}

@@ -52,6 +52,30 @@ func (h *CheckInHandler) GetQRCode(c *gin.Context) {
 	c.Data(200, "image/png", qrCode)
 }
 
+// GetCheckInToken returns the check-in token for an appointment
+// GET /api/v1/appointments/:id/checkin-token
+func (h *CheckInHandler) GetCheckInToken(c *gin.Context) {
+	_ = middleware.GetCurrentUser(c) // Just verify authentication
+
+	appointmentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid appointment ID")
+		return
+	}
+
+	// Generate or retrieve existing token
+	_, tokenString, err := h.checkInUsecase.GenerateQRToken(appointmentID)
+	if err != nil {
+		log.Printf("[CheckIn] Failed to get token for appointment %s: %v", appointmentID, err)
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.Success(c, "Check-in token retrieved", gin.H{
+		"token": tokenString,
+	})
+}
+
 // CheckIn validates token and marks patient as checked in
 // PATCH /api/v1/check-in/:token
 func (h *CheckInHandler) CheckIn(c *gin.Context) {

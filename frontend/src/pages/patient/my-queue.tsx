@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   Clock,
   Stethoscope,
@@ -7,19 +7,23 @@ import {
   ListOrdered,
   Bell,
   CheckCircle2,
+  X,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
+import { checkInApi } from '@/api/checkin'
 import { queryKeys, STALE_TIME_DASHBOARD, GC_TIME_DASHBOARD } from '@/lib/query-keys'
 
 import { PageHeader } from '@/components/shared/page-header'
 import { EmptyState } from '@/components/shared/empty-state'
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { DisconnectionBanner } from '@/components/shared/disconnection-banner'
+import { ConfirmationDialog } from '@/components/shared/confirmation-dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { toast } from '@/hooks/use-toast'
 
 import { useRealtimeSync } from '@/hooks/use-realtime-sync'
 import type { QueueTicket, QueueUpdateEvent, PatientDashboardData } from '@/types'
@@ -51,6 +55,39 @@ export default function PatientMyQueuePage() {
   const [showConsultationConfirmation, setShowConsultationConfirmation] = useState(false)
   // aria-live announcement text
   const [liveAnnouncement, setLiveAnnouncement] = useState('')
+  // QR Code state
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [qrCodeLoading, setQrCodeLoading] = useState(false)
+  const [checkInToken, setCheckInToken] = useState<string | null>(null)
+  // Cancel confirmation dialog state
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  // Real-time wait estimate
+  const [elapsedMinutes, setElapsedMinutes] = useState(0)
+
+  // Cancel appointment mutation
+  const cancelMutation = useMutation({
+    mutationFn: (appointmentId: string) => appointmentApi.cancel(appointmentId, 'Dibatalkan oleh pasien'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.patient() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.appointments.my() })
+      setShowCancelDialog(false)
+      toast.success('Antrian Dibatalkan', 'Antrian Anda telah berhasil dibatalkan')
+    },
+    onError: (error: any) => {
+      const message = error?.response?.data?.message || 'Gagal membatalkan antrian'
+      toast.error('Gagal Membatalkan', message)
+    },
+  })
+
+  const handleCancelClick = () => {
+    setShowCancelDialog(true)
+  }
+
+  const handleCancelConfirm = () => {
+    if (appointmentId) {
+      cancelMutation.mutate(appointmentId)
+    }
+  }
 
   // Fetch patient dashboard data (includes active_queue_ticket)
   const { data: dashData, isLoading: dashLoading } = useQuery({
@@ -90,6 +127,9 @@ export default function PatientMyQueuePage() {
     status: activeAppointment.status === 'in_progress' ? 'in_consultation' : 'waiting',
     appointment_id: activeAppointment.id,
   } : null)
+
+  // Extract stable appointment ID to prevent unnecessary QR refetches
+  const appointmentId = activeTicket?.appointment_id ?? activeAppointment?.id ?? null
 
   // Detect status transition to in_consultation (Requirement 18.4)
   useEffect(() => {
@@ -133,8 +173,70 @@ export default function PatientMyQueuePage() {
     pollingInterval: 30000,
   })
 
+  // Fetch QR code when there's an active appointment
+  useEffect(() => {
+    if (appointmentId) {
+      setQrCodeLoading(true)
+      Promise.all([
+        checkInApi.getQRCode(appointmentId),
+        checkInApi.getCheckInToken(appointmentId)
+      ])
+        .then(([qrResponse, tokenResponse]) => {
+          const url = URL.createObjectURL(qrResponse.data)
+          setQrCodeUrl(url)
+          setCheckInToken(tokenResponse.data.data?.token?.toLowerCase() || null)
+        })
+        .catch((error) => {
+          console.error('Failed to fetch QR code:', error)
+          setQrCodeUrl(null)
+          setCheckInToken(null)
+        })
+        .finally(() => {
+          setQrCodeLoading(false)
+        })
+    } else {
+      // Clear QR code if no appointment
+      setQrCodeUrl(null)
+      setCheckInToken(null)
+    }
+    
+    // Cleanup: revoke object URL when component unmounts or appointment changes
+    return () => {
+      if (qrCodeUrl) {
+        URL.revokeObjectURL(qrCodeUrl)
+      }
+    }
+  }, [appointmentId])
+
   const isLoading = dashLoading && apptLoading
   const isDisconnected = connectionState === 'disconnected' || connectionState === 'reconnecting'
+
+  // Real-time countdown: Calculate elapsed time since check-in
+  useEffect(() => {
+    const checkedInTime = activeAppointment?.checked_in_at
+    if (!ticket || !checkedInTime) {
+      setElapsedMinutes(0)
+      return
+    }
+
+    const calculateElapsed = () => {
+      const checkedInAt = new Date(checkedInTime)
+      const now = new Date()
+      const diffMs = now.getTime() - checkedInAt.getTime()
+      const diffMins = Math.floor(diffMs / 60000)
+      setElapsedMinutes(diffMins)
+    }
+
+    // Calculate immediately
+    calculateElapsed()
+
+    // Update every minute
+    const interval = setInterval(calculateElapsed, 60000)
+    return () => clearInterval(interval)
+  }, [ticket, activeAppointment?.checked_in_at])
+
+  // Calculate dynamic wait estimate
+  const estimatedWaitMinutes = ticket ? Math.max(0, ticket.estimated_wait_minutes - elapsedMinutes) : 0
 
   // Progress visualization: based on position (lower position = more progress)
   const getProgressWidth = () => {
@@ -331,7 +433,14 @@ export default function PatientMyQueuePage() {
                 <div>
                   <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Estimasi Tunggu</p>
                   <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {ticket.estimated_wait_minutes} menit
+                    {elapsedMinutes > 0 ? (
+                      <>
+                        <span className="text-xs opacity-75">Menunggu {elapsedMinutes} menit • </span>
+                        {estimatedWaitMinutes > 0 ? `~${estimatedWaitMinutes} menit lagi` : 'Segera dipanggil'}
+                      </>
+                    ) : (
+                      `${ticket.estimated_wait_minutes} menit`
+                    )}
                   </p>
                 </div>
               </div>
@@ -383,6 +492,119 @@ export default function PatientMyQueuePage() {
                   }}
                 />
               </div>
+            </div>
+
+            QR Code Section
+            <div
+              className="p-4 rounded-[var(--radius-md)] mb-6"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--category-patient) 5%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--category-patient) 15%, transparent)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <QrCode className="size-4" style={{ color: 'var(--category-patient)' }} aria-hidden="true" />
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  QR Code Check-in
+                </h3>
+              </div>
+
+              {qrCodeLoading && (
+                <div className="flex flex-col items-center justify-center py-6">
+                  <div
+                    className="animate-spin rounded-full h-6 w-6 border-b-2"
+                    style={{ borderColor: 'var(--category-patient)' }}
+                    aria-hidden="true"
+                  />
+                  <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+                    Memuat QR code...
+                  </p>
+                </div>
+              )}
+
+              {!qrCodeLoading && qrCodeUrl && (
+                <div className="flex flex-col items-center">
+                  <div
+                    className="p-3 rounded-md mb-3"
+                    style={{ backgroundColor: 'var(--surface-ground)' }}
+                  >
+                    <img
+                      src={qrCodeUrl}
+                      alt="QR Code untuk Check-in"
+                      className="w-32 h-32 object-contain"
+                    />
+                  </div>
+
+                  {/* Check-in Code Text */}
+                  {checkInToken && (
+                    <div
+                      className="w-full px-3 py-2 mb-3 rounded-md text-center"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, var(--category-patient) 8%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--category-patient) 20%, transparent)',
+                      }}
+                    >
+                      <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>
+                        Kode Check-in
+                      </p>
+                      <p
+                        className="text-xs font-mono font-semibold break-all select-all"
+                        style={{ color: 'var(--category-patient)' }}
+                        title="Klik untuk select, salin kode ini untuk input manual"
+                      >
+                        {checkInToken}
+                      </p>
+                    </div>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (qrCodeUrl) {
+                        const link = document.createElement('a')
+                        link.href = qrCodeUrl
+                        link.download = `qr-code-antrian-${ticket?.queue_number || 'appointment'}.png`
+                        document.body.appendChild(link)
+                        link.click()
+                        document.body.removeChild(link)
+                      }
+                    }}
+                    className="text-xs"
+                  >
+                    Download QR Code
+                  </Button>
+                </div>
+              )}
+
+              {!qrCodeLoading && !qrCodeUrl && (
+                <p className="text-xs text-center py-4" style={{ color: 'var(--text-tertiary)' }}>
+                  QR code tidak tersedia
+                </p>
+              )}
+            </div>
+
+            {/* Cancel Button */}
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                size="md"
+                onClick={handleCancelClick}
+                disabled={cancelMutation.isPending}
+                className="w-full"
+              >
+                {cancelMutation.isPending ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2" />
+                    Membatalkan...
+                  </>
+                ) : (
+                  <>
+                    <X className="size-4 mr-2" />
+                    Batalkan Antrian
+                  </>
+                )}
+              </Button>
             </div>
 
             {/* "You are next" notice — Requirement 18.3 */}
@@ -454,6 +676,19 @@ export default function PatientMyQueuePage() {
           </Button>
         </div>
       )}
+
+      {/* Cancel Confirmation Dialog */}
+      <ConfirmationDialog
+        open={showCancelDialog}
+        onOpenChange={setShowCancelDialog}
+        title="Batalkan Antrian?"
+        message="Apakah Anda yakin ingin membatalkan antrian ini? Tindakan ini tidak dapat dibatalkan."
+        confirmLabel="Ya, Batalkan"
+        cancelLabel="Tidak"
+        destructive={true}
+        onConfirm={handleCancelConfirm}
+        loading={cancelMutation.isPending}
+      />
     </div>
   )
 }

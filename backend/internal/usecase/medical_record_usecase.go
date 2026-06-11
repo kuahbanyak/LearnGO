@@ -13,8 +13,10 @@ import (
 
 type MedicalRecordUsecase interface {
 	Create(doctorUserID uuid.UUID, req *dto.CreateMedicalRecordRequest) (*entity.MedicalRecord, error)
+	Update(doctorUserID uuid.UUID, recordID uuid.UUID, req *dto.UpdateMedicalRecordRequest) (*entity.MedicalRecord, error)
 	GetByID(id uuid.UUID) (*entity.MedicalRecord, error)
 	GetByPatientID(patientID uuid.UUID, limit, offset int) ([]entity.MedicalRecord, int64, error)
+	GetByDoctorID(doctorID uuid.UUID, limit, offset int) ([]entity.MedicalRecord, int64, error)
 }
 
 type medicalRecordUsecase struct {
@@ -98,6 +100,58 @@ func (u *medicalRecordUsecase) Create(doctorUserID uuid.UUID, req *dto.CreateMed
 	return u.medRecordRepo.FindByID(record.ID)
 }
 
+func (u *medicalRecordUsecase) Update(doctorUserID uuid.UUID, recordID uuid.UUID, req *dto.UpdateMedicalRecordRequest) (*entity.MedicalRecord, error) {
+	// Get doctor profile
+	doctor, err := u.doctorRepo.FindByUserID(doctorUserID)
+	if err != nil {
+		return nil, errors.New("doctor not found")
+	}
+
+	// Find existing record
+	record, err := u.medRecordRepo.FindByID(recordID)
+	if err != nil {
+		return nil, errors.New("medical record not found")
+	}
+
+	// Verify ownership - only the doctor who created the record can update it
+	if record.DoctorID != doctor.ID {
+		return nil, errors.New("you don't have permission to update this medical record")
+	}
+
+	// Update fields
+	record.Complaint = req.Complaint
+	record.Diagnosis = req.Diagnosis
+	record.ICDCode = req.ICDCode
+	record.ActionTaken = req.ActionTaken
+	record.DoctorNotes = req.DoctorNotes
+
+	// Save updated record
+	if err := u.medRecordRepo.Update(record); err != nil {
+		return nil, errors.New("failed to update medical record")
+	}
+
+	// Replace prescriptions if provided
+	if req.Prescriptions != nil {
+		newPrescriptions := make([]entity.Prescription, 0, len(req.Prescriptions))
+		for _, p := range req.Prescriptions {
+			newPrescriptions = append(newPrescriptions, entity.Prescription{
+				ID:               uuid.New(),
+				MedicalRecordID:  record.ID,
+				MedicineName:     p.MedicineName,
+				Dosage:           p.Dosage,
+				Quantity:         p.Quantity,
+				UsageInstruction: p.UsageInstruction,
+				Notes:            p.Notes,
+			})
+		}
+		if err := u.medRecordRepo.ReplacePrescriptions(record.ID, newPrescriptions); err != nil {
+			return nil, errors.New("failed to update prescriptions")
+		}
+	}
+
+	return u.medRecordRepo.FindByID(record.ID)
+}
+
 func (u *medicalRecordUsecase) GetByID(id uuid.UUID) (*entity.MedicalRecord, error) {
 	record, err := u.medRecordRepo.FindByID(id)
 	if err != nil {
@@ -108,4 +162,8 @@ func (u *medicalRecordUsecase) GetByID(id uuid.UUID) (*entity.MedicalRecord, err
 
 func (u *medicalRecordUsecase) GetByPatientID(patientID uuid.UUID, limit, offset int) ([]entity.MedicalRecord, int64, error) {
 	return u.medRecordRepo.FindByPatientID(patientID, limit, offset)
+}
+
+func (u *medicalRecordUsecase) GetByDoctorID(doctorID uuid.UUID, limit, offset int) ([]entity.MedicalRecord, int64, error) {
+	return u.medRecordRepo.FindByDoctorID(doctorID, limit, offset)
 }

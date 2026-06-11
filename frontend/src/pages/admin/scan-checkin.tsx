@@ -387,8 +387,8 @@ export default function AdminScanCheckinPage() {
                     ref={manualInputRef}
                     type="text"
                     value={manualToken}
-                    onChange={(e) => setManualToken(e.target.value.toUpperCase())}
-                    placeholder="Contoh: A1B2C3D4E5F6..."
+                    onChange={(e) => setManualToken(e.target.value.toLowerCase())}
+                    placeholder="Contoh: a1b2c3d4e5f6..."
                     maxLength={64}
                     className="w-full px-4 py-3 text-center text-lg font-mono tracking-wider transition-all"
                     style={{

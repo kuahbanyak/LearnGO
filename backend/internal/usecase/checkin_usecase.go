@@ -50,6 +50,17 @@ func (u *checkInUsecase) GenerateQRToken(appointmentID uuid.UUID) (*entity.Check
 		return nil, "", errors.New("appointment has no patient assigned")
 	}
 
+	// Check if a valid token already exists for this appointment
+	existingToken, err := u.tokenRepo.FindByAppointmentID(appointmentID)
+	if err == nil {
+		// Token exists, check if it's still valid (not used and not expired)
+		if existingToken.UsedAt == nil && time.Now().Before(existingToken.ExpiresAt) {
+			// Token is valid, return existing token instead of generating new one
+			return existingToken, existingToken.Token, nil
+		}
+		// Token exists but is invalid (used or expired), will generate new one below
+	}
+
 	// Generate secure random token
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
@@ -112,6 +123,12 @@ func (u *checkInUsecase) ValidateAndCheckIn(tokenString string) (*entity.Appoint
 	now := time.Now()
 	if err := u.tokenRepo.MarkUsed(tokenString, now); err != nil {
 		return nil, errors.New("failed to mark token as used")
+	}
+
+	// Update appointment checked_in_at timestamp
+	appointment.CheckedInAt = &now
+	if err := u.appointmentRepo.Update(appointment); err != nil {
+		return nil, errors.New("failed to update check-in status")
 	}
 
 	// Note: We don't change appointment status here, just mark as checked in

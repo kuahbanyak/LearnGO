@@ -137,6 +137,20 @@ function generateCalendarDays(
   today.setHours(0, 0, 0, 0)
   const days: CalendarDay[] = []
 
+  // Add padding cells to align first date with correct weekday column
+  const firstDayOfWeek = today.getDay()
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    days.push({
+      date: null as any,
+      dateStr: '',
+      dayOfMonth: 0,
+      isToday: false,
+      isSelected: false,
+      isDisabled: true,
+      slotCount: 0,
+    })
+  }
+
   for (let i = 0; i < 30; i++) {
     const date = new Date(today)
     date.setDate(today.getDate() + i)
@@ -180,7 +194,7 @@ function formatDateStr(date: Date): string {
 }
 
 function formatDisplayDate(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = new Date(dateStr + 'T00:00:00')
   return date.toLocaleDateString('id-ID', {
     weekday: 'long',
     day: 'numeric',
@@ -238,7 +252,7 @@ export default function BookAppointmentPage() {
         URL.revokeObjectURL(qrCodeUrl)
       }
     }
-  }, [success, bookingResult?.appointmentId, qrCodeUrl])
+  }, [success, bookingResult?.appointmentId])
 
   // ── Data Fetching ──
 
@@ -318,7 +332,7 @@ export default function BookAppointmentPage() {
 
   const selectedDaySchedules = useMemo(() => {
     if (!wizardState.selectedDate) return []
-    const date = new Date(wizardState.selectedDate)
+    const date = new Date(wizardState.selectedDate + 'T00:00:00')
     const dayOfWeek = date.getDay()
     return schedulesForDay.get(dayOfWeek) ?? []
   }, [wizardState.selectedDate, schedulesForDay])
@@ -855,10 +869,10 @@ export default function BookAppointmentPage() {
                     </div>
                   ))}
                   {/* Calendar days */}
-                  {calendarDays.map((day) => (
+                  {calendarDays.map((day, idx) => (
                     <button
-                      key={day.dateStr}
-                      onClick={() => !day.isDisabled && handleSelectDate(day.dateStr)}
+                      key={day.dateStr || `empty-${idx}`}
+                      onClick={() => !day.isDisabled && day.dateStr && handleSelectDate(day.dateStr)}
                       disabled={day.isDisabled}
                       className="relative flex flex-col items-center justify-center p-1.5 rounded-[var(--radius-sm,0.375rem)] text-xs transition-all"
                       style={{
@@ -874,22 +888,27 @@ export default function BookAppointmentPage() {
                             : 'var(--text-primary, #1a1714)',
                         opacity: day.isDisabled ? 0.4 : 1,
                         cursor: day.isDisabled ? 'not-allowed' : 'pointer',
+                        visibility: day.dayOfMonth === 0 ? 'hidden' : 'visible',
                       }}
-                      aria-label={`${day.dateStr}${day.slotCount > 0 ? `, ${day.slotCount} slot tersedia` : ''}`}
+                      aria-label={day.dateStr ? `${day.dateStr}${day.slotCount > 0 ? `, ${day.slotCount} slot tersedia` : ''}` : 'Empty cell'}
                       aria-selected={day.isSelected}
                     >
-                      <span className="font-medium">{day.dayOfMonth}</span>
-                      {day.slotCount > 0 && !day.isDisabled && (
-                        <span
-                          className="text-[10px] leading-none mt-0.5"
-                          style={{
-                            color: day.isSelected
-                              ? 'var(--text-inverse)'
-                              : 'var(--accent-success, #059669)',
-                          }}
-                        >
-                          {day.slotCount}
-                        </span>
+                      {day.dayOfMonth > 0 && (
+                        <>
+                          <span className="font-medium">{day.dayOfMonth}</span>
+                          {day.slotCount > 0 && !day.isDisabled && (
+                            <span
+                              className="text-[10px] leading-none mt-0.5"
+                              style={{
+                                color: day.isSelected
+                                  ? 'var(--text-inverse)'
+                                  : 'var(--accent-success, #059669)',
+                              }}
+                            >
+                              {day.slotCount}
+                            </span>
+                          )}
+                        </>
                       )}
                     </button>
                   ))}

@@ -36,3 +36,12 @@ type CreatePrescriptionDTO struct {
 	UsageInstruction string `json:"usage_instruction"`
 	Notes            string `json:"notes"`
 }
+
+type UpdateMedicalRecordRequest struct {
+	Complaint     string                  `json:"complaint" binding:"required"`
+	Diagnosis     string                  `json:"diagnosis"`
+	ICDCode       string                  `json:"icd_code"`
+	ActionTaken   string                  `json:"action_taken"`
+	DoctorNotes   string                  `json:"doctor_notes"`
+	Prescriptions []CreatePrescriptionDTO `json:"prescriptions"`
+}
