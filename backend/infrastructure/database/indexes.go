@@ -19,7 +19,7 @@ func CreateIndexes(db *gorm.DB) error {
 	}{
 		// Users table indexes
 		{"idx_users_email", "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"},
-		{"idx_users_role", "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)"},
+		{"idx_users_role_id", "CREATE INDEX IF NOT EXISTS idx_users_role_id ON users(role_id)"},
 		{"idx_users_is_active", "CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)"},
 
 		// Patients table indexes
@@ -59,9 +59,7 @@ func CreateIndexes(db *gorm.DB) error {
 		
 		// Race condition prevention: Unique constraint to prevent duplicate bookings
 		// Ensures one patient cannot book the same schedule on the same date multiple times
-		{"unique_patient_schedule_date", `CREATE UNIQUE INDEX IF NOT EXISTS unique_patient_schedule_date 
-			ON appointments(patient_id, schedule_id, DATE(appointment_date)) 
-			WHERE status != 'cancelled'`},
+		{"unique_patient_schedule_date", `CREATE UNIQUE INDEX IF NOT EXISTS unique_patient_schedule_date ON appointments(patient_id, schedule_id, (appointment_date::date)) WHERE status != 'cancelled'`},
 	}
 
 	successCount := 0
