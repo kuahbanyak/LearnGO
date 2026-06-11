@@ -119,7 +119,7 @@ func (r *appointmentRepository) FindByDoctorIDAndDate(doctorID uuid.UUID, date t
 	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	err := r.db.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date < ? AND status != ?",
+	err := r.db.Where("doctor_id = ? AND appointment_date >= ? AND appointment_date < ? AND status != ? AND checked_in_at IS NOT NULL",
 		doctorID, startOfDay, endOfDay, entity.StatusCancelled).
 		Preload("Patient.User").
 		Order("queue_number").Find(&appointments).Error

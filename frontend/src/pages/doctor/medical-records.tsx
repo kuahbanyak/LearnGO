@@ -8,6 +8,7 @@ import {
   Calendar,
   Loader2,
   Trash2,
+  Pencil,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
@@ -76,7 +77,7 @@ async function downloadRecordPDF(recordId: string) {
 
 // ── Types ──
 
-type ViewMode = 'list' | 'detail' | 'create'
+type ViewMode = 'list' | 'detail' | 'create' | 'edit'
 
 interface PrescriptionInput {
   medicine_name: string
@@ -493,6 +494,188 @@ function RecordCreateForm({
   )
 }
 
+// ── Edit Form Component ──
+
+interface PrescriptionEdit {
+  medicine_name: string
+  dosage: string
+  quantity: number
+  usage_instruction: string
+  notes: string
+}
+
+function RecordEditForm({
+  record,
+  onBack,
+  onSuccess,
+}: {
+  record: MedicalRecord
+  onBack: () => void
+  onSuccess: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState({
+    complaint: record.complaint ?? '',
+    diagnosis: record.diagnosis ?? '',
+    icd_code: record.icd_code ?? '',
+    action_taken: record.action_taken ?? '',
+    doctor_notes: record.doctor_notes ?? '',
+  })
+  const [prescriptions, setPrescriptions] = useState<PrescriptionEdit[]>(
+    record.prescriptions?.map(p => ({
+      medicine_name: p.medicine_name,
+      dosage: p.dosage ?? '',
+      quantity: p.quantity ?? 1,
+      usage_instruction: p.usage_instruction ?? '',
+      notes: p.notes ?? '',
+    })) ?? []
+  )
+  const [error, setError] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => medicalRecordApi.update(record.id, { ...form, prescriptions }),
+    onSuccess: () => {
+      toast.success('Rekam medis berhasil diperbarui')
+      queryClient.invalidateQueries({ queryKey: queryKeys.medicalRecords.all })
+      onSuccess()
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } } }
+      const msg = e?.response?.data?.message || 'Gagal memperbarui rekam medis'
+      toast.error('Gagal memperbarui rekam medis', msg)
+      setError(msg)
+    },
+  })
+
+  const addPrescription = () =>
+    setPrescriptions([...prescriptions, { medicine_name: '', dosage: '', quantity: 1, usage_instruction: '', notes: '' }])
+
+  const removePrescription = (i: number) =>
+    setPrescriptions(prescriptions.filter((_, idx) => idx !== i))
+
+  const updatePrescription = (i: number, field: keyof PrescriptionEdit, value: string | number) => {
+    const updated = [...prescriptions]
+    updated[i] = { ...updated[i], [field]: value }
+    setPrescriptions(updated)
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    mutation.mutate()
+  }
+
+  const fields = [
+    { label: 'Keluhan Pasien *', field: 'complaint', required: true },
+    { label: 'Diagnosa', field: 'diagnosis', required: false },
+    { label: 'Kode ICD-10', field: 'icd_code', required: false },
+    { label: 'Tindakan yang Dilakukan', field: 'action_taken', required: false },
+    { label: 'Catatan Dokter', field: 'doctor_notes', required: false },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" onClick={onBack} aria-label="Kembali ke daftar">
+          <ArrowLeft className="size-4 mr-1" /> Kembali
+        </Button>
+      </div>
+
+      <PageHeader
+        title="Edit Rekam Medis"
+        subtitle={`Pasien: ${record.patient?.full_name ?? '—'}`}
+        category="doctor"
+      />
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {error && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>
+        )}
+
+        <Card surface="raised">
+          <CardHeader><CardTitle className="text-base">Informasi Pemeriksaan</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            {fields.map(({ label, field, required }) => (
+              <div key={field} className="space-y-1.5">
+                <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-[var(--radius-md)] border px-3 py-2 text-sm resize-none transition-colors focus:outline-none focus:ring-2"
+                  style={{ borderColor: 'var(--border-default)', backgroundColor: 'var(--surface-sunken)' }}
+                  value={form[field as keyof typeof form]}
+                  onChange={(e) => setForm({ ...form, [field]: e.target.value })}
+                  required={required}
+                  rows={field === 'complaint' ? 3 : 2}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Prescriptions — editable */}
+        <Card surface="raised">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Resep Obat</CardTitle>
+            <Button type="button" variant="secondary" size="sm" onClick={addPrescription}>
+              <Plus className="size-3 mr-1" /> Tambah Obat
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {prescriptions.length === 0 && (
+              <p className="text-sm text-center py-4" style={{ color: 'var(--text-tertiary)' }}>
+                Belum ada resep obat
+              </p>
+            )}
+            {prescriptions.map((p, i) => (
+              <div
+                key={i}
+                className="p-4 rounded-[var(--radius-md)] space-y-3"
+                style={{ backgroundColor: 'var(--surface-sunken)', border: '1px solid var(--border-default)' }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Obat #{i + 1}</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => removePrescription(i)}
+                    aria-label={`Hapus obat ${i + 1}`}>
+                    <Trash2 className="size-3.5" style={{ color: 'var(--accent-danger)' }} />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 space-y-1">
+                    <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Nama Obat *</label>
+                    <Input value={p.medicine_name} onChange={(e) => updatePrescription(i, 'medicine_name', e.target.value)} required />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Dosis</label>
+                    <Input placeholder="cth: 3x1" value={p.dosage} onChange={(e) => updatePrescription(i, 'dosage', e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Jumlah</label>
+                    <Input type="number" min={1} value={p.quantity}
+                      onChange={(e) => updatePrescription(i, 'quantity', parseInt(e.target.value) || 1)} />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Aturan Pakai</label>
+                    <Input placeholder="cth: Sesudah makan" value={p.usage_instruction}
+                      onChange={(e) => updatePrescription(i, 'usage_instruction', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end gap-3">
+          <Button type="button" variant="secondary" onClick={onBack}>Batal</Button>
+          <Button type="submit" variant="primary" disabled={mutation.isPending}>
+            {mutation.isPending
+              ? <><Loader2 className="size-4 animate-spin mr-1" /> Menyimpan...</>
+              : 'Simpan Perubahan'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 // ── Main Page Component ──
 
 export default function DoctorMedicalRecordsPage() {
@@ -515,9 +698,7 @@ export default function DoctorMedicalRecordsPage() {
   const [dateFrom, setDateFrom] = useState(searchParams.get('from') || defaultRange.start)
   const [dateTo, setDateTo] = useState(searchParams.get('to') || defaultRange.end)
 
-  // Fetch medical records for the signed-in doctor
-  const doctorId = user?.doctor?.id ?? ''
-
+  // Fetch medical records created by the signed-in doctor
   const {
     data: recordsData,
     isLoading,
@@ -526,10 +707,10 @@ export default function DoctorMedicalRecordsPage() {
   } = useQuery({
     queryKey: [...queryKeys.medicalRecords.all, 'doctor-list', debouncedSearch, page, dateFrom, dateTo],
     queryFn: () =>
-      medicalRecordApi.getByPatient(doctorId, { page }),
+      medicalRecordApi.getMyRecordsAsDoctor({ page }),
     staleTime: queryConfig.medicalRecords.staleTime,
     gcTime: queryConfig.medicalRecords.gcTime,
-    enabled: !!doctorId,
+    enabled: !!user?.doctor,
   })
 
   const records: MedicalRecord[] = recordsData?.data?.data ?? []
@@ -565,6 +746,12 @@ export default function DoctorMedicalRecordsPage() {
   const handleCreate = useCallback((appointment?: Appointment | null) => {
     setLinkedAppointment(appointment ?? null)
     setViewMode('create')
+  }, [])
+
+  // Handle edit action
+  const handleEdit = useCallback((record: MedicalRecord) => {
+    setSelectedRecord(record)
+    setViewMode('edit')
   }, [])
 
   // Handle back to list
@@ -615,6 +802,18 @@ export default function DoctorMedicalRecordsPage() {
     )
   }
 
+  if (viewMode === 'edit' && selectedRecord) {
+    return (
+      <RecordEditForm
+        record={selectedRecord}
+        onBack={handleBackToList}
+        onSuccess={() => {
+          handleBackToList()
+        }}
+      />
+    )
+  }
+
   // ── List View ──
 
   // DataTable columns
@@ -624,7 +823,7 @@ export default function DoctorMedicalRecordsPage() {
       label: 'Pasien',
       render: (row) => (
         <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-          {row.patient?.user?.full_name ?? '—'}
+          {row.patient?.full_name ?? '—'}
         </span>
       ),
     },
@@ -655,19 +854,34 @@ export default function DoctorMedicalRecordsPage() {
     {
       key: 'actions',
       label: '',
-      width: '80px',
+      width: '120px',
       render: (row) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation()
-            handleExportSingle(row.id)
-          }}
-          aria-label="Unduh PDF"
-        >
-          <Download className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleEdit(row)
+            }}
+            aria-label="Edit rekam medis"
+            title="Edit"
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleExportSingle(row.id)
+            }}
+            aria-label="Unduh PDF"
+            title="Unduh PDF"
+          >
+            <Download className="size-4" />
+          </Button>
+        </div>
       ),
     },
   ]

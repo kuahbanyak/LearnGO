@@ -6,12 +6,14 @@ import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { Appointment } from '@/types'
+import type { Appointment, MedicalRecord } from '@/types'
 
 interface Props {
   appointment: Appointment
   onDone: () => void
   onBack: () => void
+  /** Pass existing record to enter edit mode */
+  record?: MedicalRecord
 }
 
 interface PrescriptionForm {
@@ -21,18 +23,27 @@ interface PrescriptionForm {
   usage_instruction: string
 }
 
-export default function MedicalRecordForm({ appointment, onDone, onBack }: Props) {
+export default function MedicalRecordForm({ appointment, onDone, onBack, record }: Props) {
+  const isEditMode = !!record
+
   const [form, setForm] = useState({
-    complaint: '',
-    diagnosis: '',
-    icd_code: '',
-    action_taken: '',
-    doctor_notes: '',
+    complaint: record?.complaint ?? '',
+    diagnosis: record?.diagnosis ?? '',
+    icd_code: record?.icd_code ?? '',
+    action_taken: record?.action_taken ?? '',
+    doctor_notes: record?.doctor_notes ?? '',
   })
-  const [prescriptions, setPrescriptions] = useState<PrescriptionForm[]>([])
+  const [prescriptions, setPrescriptions] = useState<PrescriptionForm[]>(
+    record?.prescriptions?.map(p => ({
+      medicine_name: p.medicine_name,
+      dosage: p.dosage ?? '',
+      quantity: p.quantity ?? 1,
+      usage_instruction: p.usage_instruction ?? '',
+    })) ?? []
+  )
   const [error, setError] = useState('')
 
-  const mutation = useMutation({
+  const createMutation = useMutation({
     mutationFn: medicalRecordApi.create,
     onSuccess: () => {
       toast.success('Rekam medis berhasil disimpan')
@@ -46,6 +57,23 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
     },
   })
 
+  const updateMutation = useMutation({
+    mutationFn: (data: Parameters<typeof medicalRecordApi.update>[1]) =>
+      medicalRecordApi.update(record!.id, data),
+    onSuccess: () => {
+      toast.success('Rekam medis berhasil diperbarui')
+      onDone()
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } } }
+      const msg = e?.response?.data?.message || 'Gagal memperbarui rekam medis'
+      toast.error('Gagal memperbarui rekam medis', msg)
+      setError(msg)
+    },
+  })
+
+  const isPending = createMutation.isPending || updateMutation.isPending
+
   const addPrescription = () => {
     setPrescriptions([...prescriptions, { medicine_name: '', dosage: '', quantity: 1, usage_instruction: '' }])
   }
@@ -57,11 +85,15 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    mutation.mutate({
-      appointment_id: appointment.id,
-      ...form,
-      prescriptions,
-    })
+    if (isEditMode) {
+      updateMutation.mutate({ ...form })
+    } else {
+      createMutation.mutate({
+        appointment_id: appointment.id,
+        ...form,
+        prescriptions,
+      })
+    }
   }
 
   return (
@@ -71,7 +103,9 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
           <ArrowLeft className="size-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Buat Rekam Medis</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isEditMode ? 'Edit Rekam Medis' : 'Buat Rekam Medis'}
+          </h1>
           <p className="text-muted-foreground text-sm">
             Pasien: {appointment.patient?.user?.full_name} — No. Antrian: {appointment.queue_number}
           </p>
@@ -107,26 +141,31 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
           </CardContent>
         </Card>
 
+        {/* Prescriptions — only editable in CREATE mode */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Resep Obat</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={addPrescription}>
-              <Plus className="size-3 mr-1" /> Tambah Obat
-            </Button>
+            {!isEditMode && (
+              <Button type="button" variant="outline" size="sm" onClick={addPrescription}>
+                <Plus className="size-3 mr-1" /> Tambah Obat
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             {prescriptions.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">Belum ada resep obat ditambahkan</p>
+              <p className="text-sm text-muted-foreground text-center py-4">Belum ada resep obat</p>
             )}
             {prescriptions.map((p, i) => (
               <div key={i} className="p-4 rounded-lg border bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-600">Obat #{i + 1}</span>
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removePrescription(i)}
-                    className="text-red-400 hover:text-red-600 h-7 w-7"
-                    aria-label={`Hapus obat #${i + 1}`}>
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                  {!isEditMode && (
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removePrescription(i)}
+                      className="text-red-400 hover:text-red-600 h-7 w-7"
+                      aria-label={`Hapus obat #${i + 1}`}>
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5 col-span-2">
@@ -138,7 +177,8 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
                         updated[i].medicine_name = e.target.value
                         setPrescriptions(updated)
                       }}
-                      required
+                      required={!isEditMode}
+                      disabled={isEditMode}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -152,6 +192,7 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
                         updated[i].dosage = e.target.value
                         setPrescriptions(updated)
                       }}
+                      disabled={isEditMode}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -166,6 +207,7 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
                         updated[i].quantity = parseInt(e.target.value)
                         setPrescriptions(updated)
                       }}
+                      disabled={isEditMode}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -179,19 +221,27 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
                         updated[i].usage_instruction = e.target.value
                         setPrescriptions(updated)
                       }}
+                      disabled={isEditMode}
                       className="h-8 text-sm"
                     />
                   </div>
                 </div>
               </div>
             ))}
+            {isEditMode && prescriptions.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                * Resep obat tidak dapat diubah setelah rekam medis dibuat.
+              </p>
+            )}
           </CardContent>
         </Card>
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onBack}>Batal</Button>
-          <Button type="submit" className="gradient-primary text-white border-0" disabled={mutation.isPending}>
-            {mutation.isPending ? <><Loader2 className="size-4 animate-spin" /> Menyimpan...</> : 'Simpan Rekam Medis'}
+          <Button type="submit" className="gradient-primary text-white border-0" disabled={isPending}>
+            {isPending
+              ? <><Loader2 className="size-4 animate-spin" /> {isEditMode ? 'Menyimpan...' : 'Menyimpan...'}</>
+              : isEditMode ? 'Simpan Perubahan' : 'Simpan Rekam Medis'}
           </Button>
         </div>
       </form>

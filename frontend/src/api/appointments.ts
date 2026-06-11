@@ -87,4 +87,24 @@ export const medicalRecordApi = {
   // Patient: lihat rekam medis sendiri (endpoint khusus, otentikasi via JWT)
   getMy: (params?: { page?: number }) =>
     apiClient.get<PaginatedResponse<MedicalRecord>>('/medical-records/my', { params }),
+
+  // Doctor: lihat rekam medis yang mereka buat (endpoint khusus, otentikasi via JWT)
+  getMyRecordsAsDoctor: (params?: { page?: number }) =>
+    apiClient.get<PaginatedResponse<MedicalRecord>>('/medical-records/authored', { params }),
+
+  // Doctor: update rekam medis yang sudah ada
+  update: (id: string, data: {
+    complaint: string
+    diagnosis?: string
+    icd_code?: string
+    action_taken?: string
+    doctor_notes?: string
+    prescriptions?: {
+      medicine_name: string
+      dosage?: string
+      quantity?: number
+      usage_instruction?: string
+      notes?: string
+    }[]
+  }) => apiClient.put<ApiResponse<MedicalRecord>>(`/medical-records/${id}`, data),
 }

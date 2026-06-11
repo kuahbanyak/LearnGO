@@ -14,6 +14,10 @@ export const checkInApi = {
       responseType: 'blob',
     }),
 
+  // Get check-in token text for appointment
+  getCheckInToken: (appointmentId: string) =>
+    apiClient.get<ApiResponse<{ token: string }>>(`/appointments/${appointmentId}/checkin-token`),
+
   // Check in via token (public endpoint)
   checkIn: (token: string) =>
     apiClient.patch<ApiResponse<{
