@@ -66,7 +66,7 @@ func (h *CheckInHandler) CheckIn(c *gin.Context) {
 	response.Success(c, "Check-in successful! Please wait for your turn.", gin.H{
 		"appointment_id": appointment.ID,
 		"queue_number":   appointment.QueueNumber,
-		"doctor":         appointment.Doctor.User.FullName,
+		"doctor":         appointment.Doctor.FullName,
 		"status":         appointment.Status,
 	})
 }

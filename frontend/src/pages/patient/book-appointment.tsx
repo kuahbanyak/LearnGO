@@ -1,263 +1,1120 @@
-import { useState, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Clock, Loader2, CheckCircle } from 'lucide-react'
+import {
+  Calendar,
+  Clock,
+  CheckCircle,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  User as UserIcon,
+  Stethoscope,
+  CalendarDays,
+  ClipboardCheck,
+  Download,
+  QrCode,
+} from 'lucide-react'
 import { doctorApi, scheduleApi } from '@/api/doctors'
 import { appointmentApi } from '@/api/appointments'
+import { checkInApi } from '@/api/checkin'
 import { toast } from '@/hooks/use-toast'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { DAYS } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth-store'
-import type { DoctorSchedule } from '@/types'
+import { queryKeys, STALE_TIME_STATIC, GC_TIME_STATIC } from '@/lib/query-keys'
+import { PageHeader } from '@/components/shared/page-header'
+import { ErrorState } from '@/components/shared/error-state'
+import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
+import { StarRatingDisplay } from '@/components/shared/star-rating'
+// import SymptomScreeningForm from '@/components/shared/symptom-screening-form'
+import type { Doctor, DoctorSchedule, ScheduleAvailability } from '@/types'
+
+// ── Types ──
+
+interface WizardState {
+  selectedDoctor: Doctor | null
+  selectedSchedule: DoctorSchedule | null
+  selectedDate: string
+  symptomData: SymptomFormData | null
+}
+
+interface SymptomFormData {
+  chief_complaint: string
+  severity: 'mild' | 'moderate' | 'severe'
+  notes?: string
+}
+
+interface CalendarDay {
+  date: Date
+  dateStr: string
+  dayOfMonth: number
+  isToday: boolean
+  isSelected: boolean
+  isDisabled: boolean
+  slotCount: number
+}
+
+// ── Step Indicator Component ──
+
+function StepIndicator({ currentStep }: { currentStep: number }) {
+  const steps = [
+    { number: 1, label: 'Pilih Dokter', icon: Stethoscope },
+    { number: 2, label: 'Pilih Jadwal', icon: CalendarDays },
+    { number: 3, label: 'Konfirmasi', icon: ClipboardCheck },
+  ]
+
+  return (
+    <nav aria-label="Langkah booking" className="flex items-center justify-between">
+      {steps.map((step, idx) => {
+        const Icon = step.icon
+        const isActive = currentStep === step.number
+        const isCompleted = currentStep > step.number
+
+        return (
+          <div key={step.number} className="flex items-center flex-1">
+            <div className="flex flex-col items-center gap-1.5 flex-1">
+              <div
+                className="flex items-center justify-center rounded-full transition-all"
+                style={{
+                  width: '2.5rem',
+                  height: '2.5rem',
+                  backgroundColor: isCompleted
+                    ? 'var(--accent-success, #059669)'
+                    : isActive
+                      ? 'var(--category-patient, #059669)'
+                      : 'var(--surface-sunken, #f5f0eb)',
+                  color: isCompleted || isActive
+                    ? 'var(--text-inverse, #ffffff)'
+                    : 'var(--text-tertiary, #6b6358)',
+                  boxShadow: isActive ? 'var(--shadow-glow)' : undefined,
+                }}
+                aria-current={isActive ? 'step' : undefined}
+              >
+                {isCompleted ? (
+                  <CheckCircle className="size-5" />
+                ) : (
+                  <Icon className="size-5" />
+                )}
+              </div>
+              <span
+                className="text-xs font-medium text-center hidden sm:block"
+                style={{
+                  color: isActive
+                    ? 'var(--text-primary, #1a1714)'
+                    : 'var(--text-tertiary, #6b6358)',
+                }}
+              >
+                {step.label}
+              </span>
+            </div>
+            {idx < steps.length - 1 && (
+              <div
+                className="h-0.5 flex-1 mx-2 rounded-full hidden sm:block"
+                style={{
+                  backgroundColor: currentStep > step.number
+                    ? 'var(--accent-success, #059669)'
+                    : 'var(--border-default, #e8e2da)',
+                }}
+              />
+            )}
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
+
+// ── Helper: generate next 30 days calendar ──
+
+function generateCalendarDays(
+  selectedDate: string,
+  availableDays: number[],
+  schedulesForDay: Map<number, DoctorSchedule[]>,
+  availabilities: ScheduleAvailability[]
+): CalendarDay[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days: CalendarDay[] = []
+
+  for (let i = 0; i < 30; i++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i)
+    const dayOfWeek = date.getDay()
+    const dateStr = formatDateStr(date)
+    const isAvailable = availableDays.includes(dayOfWeek)
+    const schedules = schedulesForDay.get(dayOfWeek) ?? []
+    
+    // Calculate available slots from availability data
+    let slotCount = 0
+    if (isAvailable) {
+      const dateAvailabilities = availabilities.filter(a => a.date === dateStr)
+      if (dateAvailabilities.length > 0) {
+        // Use actual available count from API
+        slotCount = dateAvailabilities.reduce((sum, a) => sum + a.available_count, 0)
+      } else {
+        // Fallback to max capacity if no availability data yet
+        slotCount = schedules.reduce((sum, s) => sum + s.max_patient, 0)
+      }
+    }
+
+    days.push({
+      date,
+      dateStr,
+      dayOfMonth: date.getDate(),
+      isToday: i === 0,
+      isSelected: dateStr === selectedDate,
+      isDisabled: !isAvailable,
+      slotCount,
+    })
+  }
+
+  return days
+}
+
+function formatDateStr(date: Date): string {
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function formatDisplayDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+// ── Main Component ──
 
 export default function BookAppointmentPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Wizard state
   const [step, setStep] = useState(1)
-  const [selectedDoctor, setSelectedDoctor] = useState<string>('')
-  const [selectedSchedule, setSelectedSchedule] = useState<DoctorSchedule | null>(null)
-  const [selectedDate, setSelectedDate] = useState('')
+  const [wizardState, setWizardState] = useState<WizardState>({
+    selectedDoctor: null,
+    selectedSchedule: null,
+    selectedDate: '',
+    symptomData: null,
+  })
+  const [specialtyFilter, setSpecialtyFilter] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [slotError, setSlotError] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [error, setError] = useState('')
+  const [bookingResult, setBookingResult] = useState<{ queueNumber?: number; appointmentId?: string } | null>(null)
+  
+  // QR Code state and fetching
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [qrCodeLoading, setQrCodeLoading] = useState(false)
+
+  // Fetch QR code when booking succeeds and we have appointmentId
+  useEffect(() => {
+    if (success && bookingResult?.appointmentId) {
+      setQrCodeLoading(true)
+      checkInApi.getQRCode(bookingResult.appointmentId)
+        .then((response) => {
+          const url = URL.createObjectURL(response.data)
+          setQrCodeUrl(url)
+        })
+        .catch((error) => {
+          console.error('Failed to fetch QR code:', error)
+          toast.error('QR Code Error', 'Gagal memuat QR code')
+        })
+        .finally(() => {
+          setQrCodeLoading(false)
+        })
+    }
+    
+    // Cleanup: revoke object URL when component unmounts or success changes
+    return () => {
+      if (qrCodeUrl) {
+        URL.revokeObjectURL(qrCodeUrl)
+      }
+    }
+  }, [success, bookingResult?.appointmentId, qrCodeUrl])
+
+  // ── Data Fetching ──
 
   const { data: doctorsData, isLoading: doctorsLoading } = useQuery({
-    queryKey: ['doctors'],
+    queryKey: queryKeys.doctors.lists(),
     queryFn: () => doctorApi.getAll({ per_page: 100 }),
+    staleTime: STALE_TIME_STATIC,
+    gcTime: GC_TIME_STATIC,
   })
 
-  const { data: schedulesData, isLoading: schedulesLoading } = useQuery({
-    queryKey: ['schedules', selectedDoctor],
-    queryFn: () => scheduleApi.getByDoctor(selectedDoctor),
-    enabled: !!selectedDoctor,
+  const { data: schedulesData, isLoading: schedulesLoading, refetch: refetchSchedules } = useQuery({
+    queryKey: queryKeys.schedules.byDoctor(wizardState.selectedDoctor?.id ?? ''),
+    queryFn: () => scheduleApi.getByDoctor(wizardState.selectedDoctor!.id),
+    enabled: !!wizardState.selectedDoctor,
+    staleTime: STALE_TIME_STATIC,
+    gcTime: GC_TIME_STATIC,
   })
+
+  // Fetch availability for next 30 days
+  const today = new Date().toISOString().split('T')[0]
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 29)
+  const endDateStr = endDate.toISOString().split('T')[0]
+
+  const { data: availabilityData, refetch: refetchAvailability } = useQuery({
+    queryKey: ['schedules', 'availability', wizardState.selectedDoctor?.id, today, endDateStr],
+    queryFn: () => scheduleApi.getAvailability(wizardState.selectedDoctor!.id, { start_date: today, end_date: endDateStr }),
+    enabled: !!wizardState.selectedDoctor,
+    staleTime: 30000, // 30 seconds - refresh more frequently
+    gcTime: 60000,
+  })
+
+  const doctors: Doctor[] = doctorsData?.data?.data ?? []
+  const schedules: DoctorSchedule[] = schedulesData?.data?.data ?? []
+  const activeSchedules = schedules.filter(s => s.is_active)
+  const availabilities: ScheduleAvailability[] = availabilityData?.data?.data ?? []
+
+  // ── Derived Data ──
+
+  const specialties = useMemo(() => {
+    const set = new Set(doctors.map(d => d.specialization).filter(Boolean))
+    return Array.from(set).sort()
+  }, [doctors])
+
+  const filteredDoctors = useMemo(() => {
+    let result = doctors
+    if (specialtyFilter) {
+      result = result.filter(d => d.specialization === specialtyFilter)
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(d =>
+        (d.user?.full_name ?? d.full_name ?? '').toLowerCase().includes(q) ||
+        d.specialization.toLowerCase().includes(q)
+      )
+    }
+    return result
+  }, [doctors, specialtyFilter, searchQuery])
+
+  const schedulesForDay = useMemo(() => {
+    const map = new Map<number, DoctorSchedule[]>()
+    for (const s of activeSchedules) {
+      const existing = map.get(s.day_of_week) ?? []
+      existing.push(s)
+      map.set(s.day_of_week, existing)
+    }
+    return map
+  }, [activeSchedules])
+
+  const availableDays = useMemo(() => {
+    return Array.from(schedulesForDay.keys())
+  }, [schedulesForDay])
+
+  const calendarDays = useMemo(() => {
+    return generateCalendarDays(wizardState.selectedDate, availableDays, schedulesForDay, availabilities)
+  }, [wizardState.selectedDate, availableDays, schedulesForDay, availabilities])
+
+  const selectedDaySchedules = useMemo(() => {
+    if (!wizardState.selectedDate) return []
+    const date = new Date(wizardState.selectedDate)
+    const dayOfWeek = date.getDay()
+    return schedulesForDay.get(dayOfWeek) ?? []
+  }, [wizardState.selectedDate, schedulesForDay])
+
+  // Get availability for selected date
+  const selectedDateAvailability = useMemo(() => {
+    if (!wizardState.selectedDate) return new Map<string, ScheduleAvailability>()
+    const map = new Map<string, ScheduleAvailability>()
+    availabilities.forEach(avail => {
+      if (avail.date === wizardState.selectedDate) {
+        map.set(avail.schedule_id, avail)
+      }
+    })
+    return map
+  }, [wizardState.selectedDate, availabilities])
+
+  // ── Booking Mutation ──
 
   const bookMutation = useMutation({
     mutationFn: appointmentApi.book,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my-appointments'] })
-      queryClient.invalidateQueries({ queryKey: ['patient-stats'] })
-      toast.success('Antrian berhasil didaftarkan!', 'Silakan datang sesuai jadwal.')
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.appointments.my() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.patient() })
+      const data = response?.data?.data
+      setBookingResult({ 
+        queueNumber: data?.queue_number,
+        appointmentId: data?.id 
+      })
       setSuccess(true)
+      toast.success('Booking Berhasil!', 'Antrian Anda telah terdaftar.')
     },
     onError: (err: unknown) => {
-      const e = err as { response?: { data?: { message?: string } } }
+      const e = err as { response?: { data?: { message?: string; code?: string } }; status?: number }
       const msg = e?.response?.data?.message || 'Gagal membooking antrian'
-      toast.error('Gagal mendaftar antrian', msg)
-      setError(msg)
+      const status = (err as { response?: { status?: number } })?.response?.status
+
+      // Handle concurrent slot booking error (409 Conflict or slot-taken message)
+      if (status === 409 || msg.toLowerCase().includes('slot') || msg.toLowerCase().includes('penuh')) {
+        setSlotError(true)
+        refetchSchedules()
+        refetchAvailability()
+      } else {
+        toast.error('Gagal mendaftar antrian', msg)
+      }
     },
   })
 
-  const doctors = doctorsData?.data?.data ?? []
-  const schedules = schedulesData?.data?.data ?? []
+  // ── Handlers ──
 
-  const getNextDate = (dayOfWeek: number): string => {
-    const today = new Date()
-    const diff = (dayOfWeek - today.getDay() + 7) % 7
-    const next = new Date(today)
-    next.setDate(today.getDate() + (diff === 0 ? 7 : diff))
+  const handleSelectDoctor = useCallback((doctor: Doctor) => {
+    setWizardState(prev => ({
+      ...prev,
+      selectedDoctor: doctor,
+      selectedSchedule: null,
+      selectedDate: '',
+    }))
+    setStep(2)
+    setSlotError(false)
+  }, [])
 
-    // Format YYYY-MM-DD in local time
-    const yyyy = next.getFullYear()
-    const mm = String(next.getMonth() + 1).padStart(2, '0')
-    const dd = String(next.getDate()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}`
-  }
+  const handleSelectDate = useCallback((dateStr: string) => {
+    setWizardState(prev => ({
+      ...prev,
+      selectedDate: dateStr,
+      selectedSchedule: null,
+    }))
+  }, [])
 
-  useEffect(() => {
-    if (!success) return
-    const timer = setTimeout(() => {
-      navigate('/patient/dashboard')
-    }, 2000)
-    return () => clearTimeout(timer)
-  }, [success, navigate])
+  const handleSelectSlot = useCallback((schedule: DoctorSchedule) => {
+    setWizardState(prev => ({
+      ...prev,
+      selectedSchedule: schedule,
+    }))
+    setStep(3)
+  }, [])
 
-  const handleBook = () => {
-    if (!selectedSchedule || !selectedDate) return
-    setError('')
-    bookMutation.mutate({
-      doctor_id: selectedDoctor,
-      schedule_id: selectedSchedule.id,
-      appointment_date: selectedDate,
+  const handleBack = useCallback(() => {
+    if (step > 1) {
+      setStep(step - 1)
+      setSlotError(false)
+    }
+  }, [step])
+
+  const handleCancel = useCallback(() => {
+    setWizardState({
+      selectedDoctor: null,
+      selectedSchedule: null,
+      selectedDate: '',
+      symptomData: null,
     })
-  }
+    setStep(1)
+    setSpecialtyFilter('')
+    setSearchQuery('')
+    setSlotError(false)
+  }, [])
 
-  if (success) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
-          <CheckCircle className="size-10 text-green-600" />
-        </div>
-        <h2 className="text-2xl font-bold text-slate-900">Booking Berhasil!</h2>
-        <p className="text-muted-foreground">Antrian Anda telah terdaftar.</p>
-        <p className="text-sm text-slate-400 mt-2 animate-pulse">Mengalihkan ke beranda...</p>
-        <Button onClick={() => navigate('/patient/dashboard')}
-          className="gradient-primary text-white border-0 mt-4">
-          Ke Beranda Sekarang
-        </Button>
-      </div>
-    )
-  }
+  const handleSubmit = useCallback(() => {
+    if (!wizardState.selectedDoctor || !wizardState.selectedSchedule || !wizardState.selectedDate) return
+    setSlotError(false)
+    bookMutation.mutate({
+      doctor_id: wizardState.selectedDoctor.id,
+      schedule_id: wizardState.selectedSchedule.id,
+      appointment_date: wizardState.selectedDate,
+    })
+  }, [wizardState, bookMutation])
 
-  const isProfileComplete = user?.nik && user?.phone && user?.full_name && user?.gender && user?.address && user?.blood_type
+  const handleSlotErrorRetry = useCallback(() => {
+    setSlotError(false)
+    refetchSchedules()
+    refetchAvailability()
+    setStep(2)
+  }, [refetchSchedules, refetchAvailability])
+
+  // ── Profile completeness check ──
+  // Check both user and patient object for flexibility
+  const isProfileComplete = 
+    (user?.patient?.nik || user?.nik) && 
+    (user?.patient?.phone || user?.phone) && 
+    (user?.patient?.full_name || user?.full_name) && 
+    (user?.patient?.gender || user?.gender) && 
+    (user?.patient?.address || user?.address) && 
+    (user?.patient?.blood_type || user?.blood_type)
 
   if (!isProfileComplete) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 space-y-4 max-w-md mx-auto text-center">
-        <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center">
-          <Calendar className="size-10 text-amber-600" />
+      <div className="space-y-6">
+        <PageHeader
+          title="Daftar Antrian"
+          subtitle="Buat janji temu dengan dokter"
+          category="patient"
+        />
+        <div
+          className="flex flex-col items-center justify-center py-16 text-center"
+          style={{ gap: 'var(--space-4, 1rem)' }}
+        >
+          <div
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: '5rem',
+              height: '5rem',
+              backgroundColor: 'color-mix(in srgb, var(--accent-warning) 12%, transparent)',
+            }}
+          >
+            <Calendar size={48} style={{ color: 'var(--accent-warning, #d97706)' }} />
+          </div>
+          <h2
+            className="text-xl font-semibold"
+            style={{ color: 'var(--text-primary, #1a1714)' }}
+          >
+            Profil Belum Lengkap
+          </h2>
+          <p
+            className="text-sm max-w-sm"
+            style={{ color: 'var(--text-secondary, #3d3830)' }}
+          >
+            Lengkapi profil Anda (NIK, No HP, Jenis Kelamin, Alamat, Golongan Darah) sebelum membuat janji temu.
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => navigate('/patient/settings')}
+            style={{ marginTop: 'var(--space-4, 1rem)' }}
+          >
+            Lengkapi Profil
+          </Button>
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">Profil Belum Lengkap</h2>
-        <p className="text-muted-foreground">
-          Anda harus melengkapi profil Anda (NIK, No HP, Jenis Kelamin, Alamat, Golongan Darah) sebelum dapat membuat janji temu dengan dokter.
-        </p>
-        <Button onClick={() => navigate('/patient/settings')}
-          className="gradient-primary text-white border-0 mt-4 w-full">
-          Lengkapi Profil di Pengaturan
-        </Button>
       </div>
     )
   }
 
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Daftar Antrian</h1>
-        <p className="text-slate-500 mt-1">Pilih dokter dan jadwal yang tersedia</p>
-      </div>
+  // ── Success State ──
 
-      {/* Step 1: Choose Doctor */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full gradient-primary text-white text-xs flex items-center justify-center font-bold">1</span>
-            Pilih Dokter
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {doctorsLoading ? (
-            <div className="flex justify-center py-4"><Loader2 className="size-5 animate-spin" /></div>
-          ) : (
-            <div className="space-y-2">
-              {doctors.map((doctor) => (
-                <button
-                  key={doctor.id}
-                  onClick={() => { setSelectedDoctor(doctor.id); setSelectedSchedule(null); setStep(2) }}
-                  className={`w-full flex items-center gap-3 p-4 rounded-lg border text-left transition-all ${selectedDoctor === doctor.id
-                      ? 'border-primary bg-primary/5'
-                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
+  if (success) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Daftar Antrian"
+          subtitle="Buat janji temu dengan dokter"
+          category="patient"
+        />
+        <div
+          className="flex flex-col items-center justify-center py-16 text-center"
+          style={{ gap: 'var(--space-4, 1rem)' }}
+        >
+          <div
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: '5rem',
+              height: '5rem',
+              backgroundColor: 'color-mix(in srgb, var(--accent-success) 12%, transparent)',
+            }}
+          >
+            <CheckCircle size={48} style={{ color: 'var(--accent-success, #059669)' }} />
+          </div>
+          <h2
+            className="text-xl font-semibold"
+            style={{ color: 'var(--text-primary, #1a1714)' }}
+          >
+            Booking Berhasil!
+          </h2>
+          <p
+            className="text-sm"
+            style={{ color: 'var(--text-secondary, #3d3830)' }}
+          >
+            Antrian Anda telah terdaftar.
+            {bookingResult?.queueNumber && (
+              <span className="block mt-1 font-mono text-lg font-bold" style={{ color: 'var(--category-patient)' }}>
+                No. Antrian: {bookingResult.queueNumber}
+              </span>
+            )}
+          </p>
+
+          {/* QR Code Section */}
+          <div
+            className="w-full max-w-md mt-6 p-6 rounded-[var(--radius-lg,1rem)]"
+            style={{
+              backgroundColor: 'var(--surface-raised, #ffffff)',
+              border: '1px solid var(--border-default, #e8e2da)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <QrCode className="size-5" style={{ color: 'var(--category-patient)' }} />
+              <h3
+                className="text-base font-semibold"
+                style={{ color: 'var(--text-primary, #1a1714)' }}
+              >
+                QR Code Check-in
+              </h3>
+            </div>
+
+            {qrCodeLoading && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <div
+                  className="animate-spin rounded-full h-8 w-8 border-b-2"
+                  style={{ borderColor: 'var(--category-patient)' }}
+                />
+                <p className="text-sm mt-3" style={{ color: 'var(--text-secondary)' }}>
+                  Memuat QR code...
+                </p>
+              </div>
+            )}
+
+            {!qrCodeLoading && qrCodeUrl && (
+              <div className="flex flex-col items-center">
+                <div
+                  className="p-4 rounded-[var(--radius-md)] mb-4"
+                  style={{
+                    backgroundColor: 'var(--surface-ground, #faf8f5)',
+                    border: '2px solid var(--border-default, #e8e2da)',
+                  }}
                 >
-                  <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold shrink-0">
-                    {doctor.user?.full_name?.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm">{doctor.user?.full_name}</p>
-                    <p className="text-xs text-muted-foreground">{doctor.specialization}</p>
-                  </div>
-                  {selectedDoctor === doctor.id && (
-                    <CheckCircle className="size-4 text-primary ml-auto" />
-                  )}
-                </button>
+                  <img
+                    src={qrCodeUrl}
+                    alt="QR Code untuk Check-in"
+                    className="w-48 h-48 object-contain"
+                  />
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => {
+                    if (qrCodeUrl) {
+                      const link = document.createElement('a')
+                      link.href = qrCodeUrl
+                      link.download = `qr-code-antrian-${bookingResult?.queueNumber || 'appointment'}.png`
+                      document.body.appendChild(link)
+                      link.click()
+                      document.body.removeChild(link)
+                      toast.success('QR Code Tersimpan', 'QR code berhasil diunduh')
+                    }
+                  }}
+                  leftIcon={<Download className="size-4" />}
+                  className="mb-4"
+                >
+                  Download QR Code
+                </Button>
+
+                <div
+                  className="text-left w-full p-4 rounded-[var(--radius-md)]"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--category-patient) 8%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--category-patient) 20%, transparent)',
+                  }}
+                >
+                  <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                    Cara Check-in:
+                  </p>
+                  <ol className="text-xs space-y-1" style={{ color: 'var(--text-secondary)' }}>
+                    <li>1. Datang ke klinik sesuai jadwal dokter</li>
+                    <li>2. Scan QR code ini di counter check-in atau kiosk</li>
+                    <li>3. Tunggu nomor antrian Anda dipanggil</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {!qrCodeLoading && !qrCodeUrl && (
+              <div className="text-center py-4">
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  QR code tidak tersedia. Anda dapat check-in manual di klinik.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="primary"
+              onClick={() => navigate('/patient/my-queue')}
+            >
+              Lihat Antrian
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/patient/dashboard')}
+            >
+              Ke Beranda
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Main Wizard Render ──
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <PageHeader
+        title="Daftar Antrian"
+        subtitle="Buat janji temu dengan dokter"
+        category="patient"
+        actions={
+          step > 1 ? (
+            <Button variant="ghost" size="sm" onClick={handleCancel} leftIcon={<X className="size-4" />}>
+              Batal
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/* Step Indicator */}
+      <StepIndicator currentStep={step} />
+
+      {/* ── Step 1: Select Doctor ── */}
+      {step === 1 && (
+        <div className="space-y-4">
+          {/* Search & Filter */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 size-4"
+                style={{ color: 'var(--text-tertiary, #6b6358)' }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari dokter..."
+                className="w-full pl-10 pr-4 py-2.5 text-sm rounded-[var(--radius-md,0.75rem)] border transition-all focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+                style={{
+                  backgroundColor: 'var(--surface-raised, #ffffff)',
+                  borderColor: 'color-mix(in srgb, var(--text-primary) 15%, transparent)',
+                  color: 'var(--text-primary, #1a1714)',
+                }}
+              />
+            </div>
+            <select
+              value={specialtyFilter}
+              onChange={(e) => setSpecialtyFilter(e.target.value)}
+              className="px-4 py-2.5 text-sm rounded-[var(--radius-md,0.75rem)] border transition-all focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+              style={{
+                backgroundColor: 'var(--surface-raised, #ffffff)',
+                borderColor: 'color-mix(in srgb, var(--text-primary) 15%, transparent)',
+                color: 'var(--text-primary, #1a1714)',
+              }}
+              aria-label="Filter spesialisasi"
+            >
+              <option value="">Semua Spesialisasi</option>
+              {specialties.map(s => (
+                <option key={s} value={s}>{s}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Doctor Cards */}
+          {doctorsLoading ? (
+            <LoadingSkeleton variant="card" count={3} />
+          ) : filteredDoctors.length === 0 ? (
+            <div
+              className="text-center py-8"
+              style={{ color: 'var(--text-tertiary, #6b6358)' }}
+            >
+              <p className="text-sm">Tidak ada dokter ditemukan</p>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {filteredDoctors.map((doctor) => {
+                const doctorName = doctor.user?.full_name ?? doctor.full_name ?? 'Dokter'
+                return (
+                  <button
+                    key={doctor.id}
+                    onClick={() => handleSelectDoctor(doctor)}
+                    className="w-full flex items-center gap-4 p-4 rounded-[var(--radius-lg,1rem)] border text-left transition-all hover:shadow-[var(--shadow-md)]"
+                    style={{
+                      backgroundColor: 'var(--surface-raised, #ffffff)',
+                      borderColor: 'var(--border-default, #e8e2da)',
+                    }}
+                    aria-label={`Pilih ${doctorName}, ${doctor.specialization}`}
+                  >
+                    <div
+                      className="flex items-center justify-center rounded-full shrink-0"
+                      style={{
+                        width: '3rem',
+                        height: '3rem',
+                        backgroundColor: 'color-mix(in srgb, var(--category-doctor) 12%, transparent)',
+                        color: 'var(--category-doctor, #0284c7)',
+                      }}
+                    >
+                      <UserIcon className="size-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="font-semibold text-sm truncate"
+                        style={{ color: 'var(--text-primary, #1a1714)' }}
+                      >
+                        {doctorName}
+                      </p>
+                      <p
+                        className="text-xs mt-0.5"
+                        style={{ color: 'var(--text-secondary, #3d3830)' }}
+                      >
+                        {doctor.specialization}
+                      </p>
+                      <div className="mt-1">
+                        <StarRatingDisplay rating={4.5} size="sm" showNumber={false} />
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <ChevronRight className="size-5" style={{ color: 'var(--text-tertiary)' }} />
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Step 2: Choose Schedule */}
-      {step >= 2 && selectedDoctor && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full gradient-primary text-white text-xs flex items-center justify-center font-bold">2</span>
-              Pilih Jadwal
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {schedulesLoading ? (
-              <div className="flex justify-center py-4"><Loader2 className="size-5 animate-spin" /></div>
-            ) : schedules.filter(s => s.is_active).length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Tidak ada jadwal tersedia</p>
-            ) : (
-              <div className="space-y-2">
-                {schedules.filter(s => s.is_active).map((schedule) => {
-                  const nextDate = getNextDate(schedule.day_of_week)
-                  return (
-                    <button
-                      key={schedule.id}
-                      onClick={() => {
-                        setSelectedSchedule(schedule)
-                        setSelectedDate(nextDate)
-                        setStep(3)
-                      }}
-                      className={`w-full flex items-center justify-between p-4 rounded-lg border text-left transition-all ${selectedSchedule?.id === schedule.id
-                          ? 'border-primary bg-primary/5'
-                          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Calendar className="size-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium text-sm">{DAYS[schedule.day_of_week]}</p>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="size-3" />
-                            <span>{schedule.start_time} - {schedule.end_time}</span>
-                            <span className="mx-1">·</span>
-                            <span>Maks {schedule.max_patient} pasien</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-medium text-slate-900">{new Date(nextDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</p>
-                        {selectedSchedule?.id === schedule.id && (
-                          <CheckCircle className="size-4 text-primary ml-auto mt-1" />
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        </div>
       )}
 
-      {/* Step 3: Confirm */}
-      {step >= 3 && selectedSchedule && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full gradient-primary text-white text-xs flex items-center justify-center font-bold">3</span>
-              Konfirmasi Booking
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>
-            )}
-            <div className="p-4 rounded-lg bg-slate-50 border space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Tanggal</span>
-                <span className="font-medium">{new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+      {/* ── Step 2: Select Date & Time ── */}
+      {step === 2 && (
+        <div className="space-y-4">
+          {/* Slot Error State */}
+          {slotError && (
+            <ErrorState
+              title="Slot Tidak Tersedia"
+              message="Slot yang Anda pilih sudah dipesan oleh pasien lain. Silakan pilih slot lain."
+              category="validation"
+              onRetry={handleSlotErrorRetry}
+              retryLabel="Refresh Jadwal"
+            />
+          )}
+
+          {/* Back button + Doctor info */}
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={handleBack} aria-label="Kembali">
+              <ChevronLeft className="size-5" />
+            </Button>
+            <div className="flex items-center gap-3 flex-1">
+              <div
+                className="flex items-center justify-center rounded-full shrink-0"
+                style={{
+                  width: '2.5rem',
+                  height: '2.5rem',
+                  backgroundColor: 'color-mix(in srgb, var(--category-doctor) 12%, transparent)',
+                  color: 'var(--category-doctor, #0284c7)',
+                }}
+              >
+                <Stethoscope className="size-4" />
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Jam Praktek</span>
-                <span className="font-medium">{selectedSchedule.start_time} - {selectedSchedule.end_time}</span>
+              <div>
+                <p
+                  className="font-semibold text-sm"
+                  style={{ color: 'var(--text-primary, #1a1714)' }}
+                >
+                  {wizardState.selectedDoctor?.user?.full_name ?? wizardState.selectedDoctor?.full_name}
+                </p>
+                <p
+                  className="text-xs"
+                  style={{ color: 'var(--text-secondary, #3d3830)' }}
+                >
+                  {wizardState.selectedDoctor?.specialization}
+                </p>
               </div>
             </div>
-            <Button
-              onClick={handleBook}
-              disabled={bookMutation.isPending}
-              className="w-full gradient-primary text-white border-0"
+          </div>
+
+          {schedulesLoading ? (
+            <LoadingSkeleton variant="card" count={2} />
+          ) : activeSchedules.length === 0 ? (
+            <div
+              className="text-center py-8"
+              style={{ color: 'var(--text-tertiary, #6b6358)' }}
             >
-              {bookMutation.isPending
-                ? <><Loader2 className="size-4 animate-spin" /> Mendaftar...</>
-                : 'Konfirmasi & Daftar'}
+              <p className="text-sm">Tidak ada jadwal tersedia untuk dokter ini</p>
+            </div>
+          ) : (
+            <>
+              {/* Calendar Grid - Next 30 days */}
+              <div
+                className="rounded-[var(--radius-lg,1rem)] p-4"
+                style={{
+                  backgroundColor: 'var(--surface-raised, #ffffff)',
+                  border: '1px solid var(--border-default, #e8e2da)',
+                }}
+              >
+                <h3
+                  className="text-sm font-semibold mb-3"
+                  style={{ color: 'var(--text-primary, #1a1714)' }}
+                >
+                  <Calendar className="size-4 inline-block mr-2" />
+                  Pilih Tanggal (30 hari ke depan)
+                </h3>
+                <div className="grid grid-cols-7 gap-1">
+                  {/* Day headers */}
+                  {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(day => (
+                    <div
+                      key={day}
+                      className="text-center text-xs font-medium py-1"
+                      style={{ color: 'var(--text-tertiary, #6b6358)' }}
+                    >
+                      {day}
+                    </div>
+                  ))}
+                  {/* Calendar days */}
+                  {calendarDays.map((day) => (
+                    <button
+                      key={day.dateStr}
+                      onClick={() => !day.isDisabled && handleSelectDate(day.dateStr)}
+                      disabled={day.isDisabled}
+                      className="relative flex flex-col items-center justify-center p-1.5 rounded-[var(--radius-sm,0.375rem)] text-xs transition-all"
+                      style={{
+                        backgroundColor: day.isSelected
+                          ? 'var(--category-patient, #059669)'
+                          : day.isToday
+                            ? 'color-mix(in srgb, var(--category-patient) 8%, transparent)'
+                            : undefined,
+                        color: day.isSelected
+                          ? 'var(--text-inverse, #ffffff)'
+                          : day.isDisabled
+                            ? 'var(--text-tertiary, #6b6358)'
+                            : 'var(--text-primary, #1a1714)',
+                        opacity: day.isDisabled ? 0.4 : 1,
+                        cursor: day.isDisabled ? 'not-allowed' : 'pointer',
+                      }}
+                      aria-label={`${day.dateStr}${day.slotCount > 0 ? `, ${day.slotCount} slot tersedia` : ''}`}
+                      aria-selected={day.isSelected}
+                    >
+                      <span className="font-medium">{day.dayOfMonth}</span>
+                      {day.slotCount > 0 && !day.isDisabled && (
+                        <span
+                          className="text-[10px] leading-none mt-0.5"
+                          style={{
+                            color: day.isSelected
+                              ? 'var(--text-inverse)'
+                              : 'var(--accent-success, #059669)',
+                          }}
+                        >
+                          {day.slotCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time Slots for selected date */}
+              {wizardState.selectedDate && (
+                <div
+                  className="rounded-[var(--radius-lg,1rem)] p-4"
+                  style={{
+                    backgroundColor: 'var(--surface-raised, #ffffff)',
+                    border: '1px solid var(--border-default, #e8e2da)',
+                  }}
+                >
+                  <h3
+                    className="text-sm font-semibold mb-3"
+                    style={{ color: 'var(--text-primary, #1a1714)' }}
+                  >
+                    <Clock className="size-4 inline-block mr-2" />
+                    Slot Waktu — {formatDisplayDate(wizardState.selectedDate)}
+                  </h3>
+                  {selectedDaySchedules.length === 0 ? (
+                    <p
+                      className="text-sm text-center py-4"
+                      style={{ color: 'var(--text-tertiary)' }}
+                    >
+                      Tidak ada slot tersedia pada tanggal ini
+                    </p>
+                  ) : (
+                    <div className="grid gap-2">
+                      {selectedDaySchedules.map((schedule) => (
+                        <button
+                          key={schedule.id}
+                          onClick={() => handleSelectSlot(schedule)}
+                          className="flex items-center justify-between p-3 rounded-[var(--radius-md,0.75rem)] border text-left transition-all hover:shadow-[var(--shadow-sm)]"
+                          style={{
+                            backgroundColor: wizardState.selectedSchedule?.id === schedule.id
+                              ? 'color-mix(in srgb, var(--category-patient) 8%, transparent)'
+                              : 'var(--surface-raised, #ffffff)',
+                            borderColor: wizardState.selectedSchedule?.id === schedule.id
+                              ? 'var(--category-patient, #059669)'
+                              : 'var(--border-default, #e8e2da)',
+                          }}
+                          aria-label={`Slot ${schedule.start_time} - ${schedule.end_time}, maks ${schedule.max_patient} pasien`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Clock
+                              className="size-4"
+                              style={{ color: 'var(--category-patient, #059669)' }}
+                            />
+                            <div>
+                              <p
+                                className="font-medium text-sm"
+                                style={{ color: 'var(--text-primary, #1a1714)' }}
+                              >
+                                {schedule.start_time} - {schedule.end_time}
+                              </p>
+                              {selectedDateAvailability.has(schedule.id) ? (
+                                <p
+                                  className="text-xs"
+                                  style={{ 
+                                    color: selectedDateAvailability.get(schedule.id)!.available_count > 0 
+                                      ? 'var(--accent-success, #059669)' 
+                                      : 'var(--accent-danger, #dc2626)' 
+                                  }}
+                                >
+                                  {selectedDateAvailability.get(schedule.id)!.available_count} tersedia dari {schedule.max_patient}
+                                </p>
+                              ) : (
+                                <p
+                                  className="text-xs"
+                                  style={{ color: 'var(--text-tertiary, #6b6358)' }}
+                                >
+                                  Maks {schedule.max_patient} pasien
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          {wizardState.selectedSchedule?.id === schedule.id && (
+                            <CheckCircle
+                              className="size-5"
+                              style={{ color: 'var(--category-patient, #059669)' }}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3: Confirm ── */}
+      {step === 3 && (
+        <div className="space-y-4">
+          {/* Back button */}
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={handleBack} aria-label="Kembali">
+              <ChevronLeft className="size-5" />
             </Button>
-          </CardContent>
-        </Card>
+            <h3
+              className="font-semibold text-sm"
+              style={{ color: 'var(--text-primary, #1a1714)' }}
+            >
+              Konfirmasi Booking
+            </h3>
+          </div>
+
+          {/* Slot Error State */}
+          {slotError && (
+            <ErrorState
+              title="Slot Tidak Tersedia"
+              message="Slot yang Anda pilih sudah dipesan oleh pasien lain. Silakan pilih slot lain."
+              category="validation"
+              onRetry={handleSlotErrorRetry}
+              retryLabel="Pilih Slot Lain"
+            />
+          )}
+
+          {!slotError && (
+            <>
+              {/* Booking Summary */}
+              <div
+                className="rounded-[var(--radius-lg,1rem)] p-5"
+                style={{
+                  backgroundColor: 'var(--surface-raised, #ffffff)',
+                  border: '1px solid var(--border-default, #e8e2da)',
+                }}
+              >
+                <h4
+                  className="text-sm font-semibold mb-4"
+                  style={{ color: 'var(--text-primary, #1a1714)' }}
+                >
+                  Ringkasan Booking
+                </h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span
+                      className="text-sm"
+                      style={{ color: 'var(--text-secondary, #3d3830)' }}
+                    >
+                      Dokter
+                    </span>
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--text-primary, #1a1714)' }}
+                    >
+                      {wizardState.selectedDoctor?.user?.full_name ?? wizardState.selectedDoctor?.full_name}
+                    </span>
+                  </div>
+                  <div
+                    className="h-px"
+                    style={{ backgroundColor: 'var(--border-default, #e8e2da)' }}
+                  />
+                  <div className="flex justify-between items-center">
+                    <span
+                      className="text-sm"
+                      style={{ color: 'var(--text-secondary, #3d3830)' }}
+                    >
+                      Spesialisasi
+                    </span>
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--text-primary, #1a1714)' }}
+                    >
+                      {wizardState.selectedDoctor?.specialization}
+                    </span>
+                  </div>
+                  <div
+                    className="h-px"
+                    style={{ backgroundColor: 'var(--border-default, #e8e2da)' }}
+                  />
+                  <div className="flex justify-between items-center">
+                    <span
+                      className="text-sm"
+                      style={{ color: 'var(--text-secondary, #3d3830)' }}
+                    >
+                      Tanggal
+                    </span>
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--text-primary, #1a1714)' }}
+                    >
+                      {formatDisplayDate(wizardState.selectedDate)}
+                    </span>
+                  </div>
+                  <div
+                    className="h-px"
+                    style={{ backgroundColor: 'var(--border-default, #e8e2da)' }}
+                  />
+                  <div className="flex justify-between items-center">
+                    <span
+                      className="text-sm"
+                      style={{ color: 'var(--text-secondary, #3d3830)' }}
+                    >
+                      Jam Praktek
+                    </span>
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--text-primary, #1a1714)' }}
+                    >
+                      {wizardState.selectedSchedule?.start_time} - {wizardState.selectedSchedule?.end_time}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <Button
+                variant="primary"
+                size="lg"
+                className="w-full"
+                onClick={handleSubmit}
+                loading={bookMutation.isPending}
+                disabled={bookMutation.isPending}
+              >
+                {bookMutation.isPending ? 'Mendaftar...' : 'Konfirmasi & Daftar Antrian'}
+              </Button>
+            </>
+          )}
+        </div>
       )}
     </div>
   )

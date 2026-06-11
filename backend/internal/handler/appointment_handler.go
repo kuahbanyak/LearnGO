@@ -2,15 +2,16 @@ package handler
 
 import (
 	"mediqueue/internal/dto"
-	"mediqueue/internal/entity"
 	"mediqueue/internal/middleware"
 	"mediqueue/internal/usecase"
+	"mediqueue/pkg/logger"
 	"mediqueue/pkg/response"
 	"mediqueue/pkg/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type AppointmentHandler struct {
@@ -33,6 +34,13 @@ func (h *AppointmentHandler) Book(c *gin.Context) {
 
 	appointment, err := h.appointmentUsecase.Book(userID, &req)
 	if err != nil {
+		// Log quota full errors to monitor race condition handling
+		if err.Error() == "appointment quota for this schedule is full" {
+			logger.Info("Booking rejected - quota full (race condition handled)",
+				zap.String("user_id", userID.String()),
+				zap.String("schedule_id", req.ScheduleID),
+				zap.String("date", req.AppointmentDate))
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -151,6 +159,5 @@ func (h *AppointmentHandler) Cancel(c *gin.Context) {
 }
 
 func (h *AppointmentHandler) GetAllForAdmin(c *gin.Context) {
-	_ = entity.RoleAdmin // ensure import used
 	h.GetAll(c)
 }

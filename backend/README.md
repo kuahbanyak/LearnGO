@@ -513,6 +513,30 @@ The system has 3 roles. The JWT payload contains `role` and `user_id`.
 
 ---
 
+## 📱 QR Check-in System
+
+### Overview
+The QR Check-in system allows clinic staff to quickly check-in patients by scanning their QR codes.
+
+### Check-in Methods (Frontend)
+1. **Camera Scanner** - Real-time QR scanning via webcam
+2. **File Upload** - Upload QR code image files (PNG, JPG, etc.)
+3. **Manual Entry** - Paste token or URL directly
+
+### Flow
+```
+Patient Books → Receives QR (64-char token) → 
+Admin Scans QR → Token Validated → Patient Checked-in → Queue Updated
+```
+
+### Technical Details
+- Token: 64-character hex string (32 random bytes)
+- Expiration: End of appointment day (23:59:59)
+- QR Library: `github.com/skip2/go-qrcode`
+- Frontend Scanner: `html5-qrcode` npm package
+
+---
+
 ## ⚙️ Environment Variables
 
 | Variable | Required | Description | Example |
@@ -563,6 +587,7 @@ Server starts at `http://localhost:8080`
 | 6 | Symptom Pre-screening | ✅ |
 | 7 | Appointment Reschedule | ✅ |
 | 8 | Search & Filter | ✅ |
+| 9 | Admin QR Scanner (Camera/Upload) | ✅ NEW |
 
 ---
 

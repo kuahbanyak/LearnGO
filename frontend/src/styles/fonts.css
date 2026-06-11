@@ -1,0 +1,121 @@
+/**
+ * MediQueue Design System — Font Loading Strategy
+ * "Soft Machine Medical" — editorial warmth × modern product optimism
+ *
+ * Strategy:
+ *   1. @font-face declarations with font-display: swap for all custom fonts
+ *      so text is immediately visible using fallback fonts (Req 11.1)
+ *   2. Fallback @font-face declarations with size-adjust, ascent-override,
+ *      and descent-override to match custom font metrics — keeps CLS < 0.01 (Req 11.2, 11.3)
+ *   3. Preload hints for critical fonts in index.html (Req 11.4)
+ *   4. System font stack fallbacks defined in --font-* tokens (tokens.css)
+ *
+ * Font families:
+ *   Display : Space Grotesk     — weights 400, 500, 600, 700
+ *   Body    : Plus Jakarta Sans — weights 400, 500, 600, 700
+ *   Mono    : JetBrains Mono    — weights 400, 500, 700, 800
+ *
+ * Requirements: 11.1, 11.2, 11.3, 11.4
+ */
+
+/* ============================================================
+ * PLUS JAKARTA SANS — Body / Heading font
+ * Loaded via Google Fonts CSS API (index.html)
+ * Fallback metrics calibrated against system-ui / Inter
+ *   size-adjust:    107%  — compensates for slightly smaller x-height
+ *   ascent-override: 90%  — matches cap-height of Plus Jakarta Sans
+ *   descent-override: 22% — matches descender depth
+ * These values keep line-height differences < 5% (Req 11.3)
+ * ============================================================ */
+
+/* --- Fallback: system-ui adjusted to match Plus Jakarta Sans metrics --- */
+/* Req 11.2, 11.3: size-adjust + ascent/descent-override prevent CLS on swap */
+@font-face {
+  font-family: "Plus Jakarta Sans Fallback";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: local("system-ui"), local("-apple-system"), local("BlinkMacSystemFont"),
+    local("Segoe UI"), local("Arial");
+  size-adjust: 107%;
+  ascent-override: 90%;
+  descent-override: 22%;
+}
+
+/* ============================================================
+ * SPACE GROTESK — Display font
+ * Loaded via Google Fonts CSS API (index.html)
+ * Fallback metrics calibrated against system-ui
+ *   size-adjust:    100%  — similar overall scale to system-ui
+ *   ascent-override: 88%  — matches Space Grotesk cap-height
+ *   descent-override: 20% — matches descender depth
+ * ============================================================ */
+
+/* --- Fallback: system-ui adjusted to match Space Grotesk metrics --- */
+/* Req 11.2, 11.3 */
+@font-face {
+  font-family: "Space Grotesk Fallback";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: local("system-ui"), local("-apple-system"), local("BlinkMacSystemFont"),
+    local("Segoe UI"), local("Arial");
+  size-adjust: 100%;
+  ascent-override: 88%;
+  descent-override: 20%;
+}
+
+/* ============================================================
+ * JETBRAINS MONO — Monospace font
+ * Loaded via Google Fonts CSS API (index.html)
+ * Fallback metrics calibrated against Courier New
+ *   size-adjust:    87%   — Courier New is wider; shrink to match JetBrains Mono
+ *   ascent-override: 85%  — matches JetBrains Mono cap-height
+ *   descent-override: 20% — matches descender depth
+ * ============================================================ */
+
+/* --- Fallback: Courier New adjusted to match JetBrains Mono metrics --- */
+/* Req 11.2, 11.3 */
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: local("Courier New"), local("Courier"), local("ui-monospace"),
+    local("Cascadia Code"), local("Consolas");
+  size-adjust: 87%;
+  ascent-override: 85%;
+  descent-override: 20%;
+}
+
+/* ============================================================
+ * SYSTEM FONT STACK FALLBACKS
+ * Req 11.2: When custom fonts fail to load within 3 seconds,
+ * text renders using the system font stack defined in tokens.css.
+ *
+ * The --font-* tokens already include system fallbacks:
+ *   --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif
+ *   --font-body:    "Plus Jakarta Sans", system-ui, -apple-system, sans-serif
+ *   --font-mono:    "JetBrains Mono", ui-monospace, "Cascadia Code", monospace
+ *
+ * The adjusted fallback @font-face families above are referenced
+ * in the font stacks below so browsers use metric-matched fallbacks
+ * during the swap period, preventing CLS.
+ * ============================================================ */
+
+:root {
+  /**
+   * Extended font stacks that include the metric-adjusted fallback families.
+   * These override the values set in tokens.css to insert the adjusted
+   * fallback between the custom font and the generic system stack.
+   * This ensures the swap from fallback → custom font causes < 0.01 CLS.
+   *
+   * Req 11.2, 11.3
+   */
+  --font-display: "Space Grotesk", "Space Grotesk Fallback", system-ui,
+    -apple-system, sans-serif;
+  --font-body: "Plus Jakarta Sans", "Plus Jakarta Sans Fallback", system-ui,
+    -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", ui-monospace,
+    "Cascadia Code", monospace;
+}

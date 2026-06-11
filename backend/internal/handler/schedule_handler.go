@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"mediqueue/internal/dto"
 	"mediqueue/internal/usecase"
 	"mediqueue/pkg/response"
@@ -108,4 +110,58 @@ func (h *ScheduleHandler) Toggle(c *gin.Context) {
 	}
 
 	response.Success(c, "Schedule toggled", schedule)
+}
+
+func (h *ScheduleHandler) GetAvailability(c *gin.Context) {
+	doctorID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid doctor ID")
+		return
+	}
+
+	// Get query parameters for date range
+	startDateStr := c.Query("start_date")
+	endDateStr := c.Query("end_date")
+
+	// Default to next 7 days if not provided
+	var startDate, endDate time.Time
+	if startDateStr == "" {
+		startDate = time.Now().Truncate(24 * time.Hour)
+	} else {
+		startDate, err = time.ParseInLocation("2006-01-02", startDateStr, time.Local)
+		if err != nil {
+			response.BadRequest(c, "Invalid start_date format. Use YYYY-MM-DD")
+			return
+		}
+	}
+
+	if endDateStr == "" {
+		endDate = startDate.AddDate(0, 0, 6) // 7 days total
+	} else {
+		endDate, err = time.ParseInLocation("2006-01-02", endDateStr, time.Local)
+		if err != nil {
+			response.BadRequest(c, "Invalid end_date format. Use YYYY-MM-DD")
+			return
+		}
+	}
+
+	// Validate date range
+	if endDate.Before(startDate) {
+		response.BadRequest(c, "end_date must be after start_date")
+		return
+	}
+
+	// Limit to 30 days max to prevent abuse
+	if endDate.Sub(startDate) > 30*24*time.Hour {
+		response.BadRequest(c, "Date range cannot exceed 30 days")
+		return
+	}
+
+	availabilities, err := h.scheduleUsecase.GetAvailability(doctorID, startDate, endDate)
+	if err != nil {
+		response.InternalServerError(c, "Failed to retrieve schedule availability")
+		return
+	}
+
+	response.Success(c, "Schedule availability retrieved", availabilities)
 }

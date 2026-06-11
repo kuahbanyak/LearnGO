@@ -1,541 +1,458 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Loader2, Eye, AlertTriangle, Clock, Timer, QrCode, Download, Share2, X } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Clock,
+  Stethoscope,
+  QrCode,
+  ListOrdered,
+  Bell,
+  CheckCircle2,
+} from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+
+import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
-import { toast } from '@/hooks/use-toast'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { queryKeys, STALE_TIME_DASHBOARD, GC_TIME_DASHBOARD } from '@/lib/query-keys'
+
+import { PageHeader } from '@/components/shared/page-header'
+import { EmptyState } from '@/components/shared/empty-state'
+import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
+import { DisconnectionBanner } from '@/components/shared/disconnection-banner'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { formatDate } from '@/lib/utils'
-import type { Appointment } from '@/types'
-import { ratingsApi } from '@/api/ratings'
-import StarRating from '@/components/shared/star-rating'
 
-/** Estimate wait time: ~10 minutes per patient ahead */
-function getEstimatedWait(appointment: Appointment, allAppointments: Appointment[]): string | null {
-  if (appointment.status !== 'waiting') return null
-  
-  // Get all active appointments for the same doctor on the same date
-  const sameQueue = allAppointments.filter(
-    a => a.doctor_id === appointment.doctor_id && 
-         a.appointment_date === appointment.appointment_date &&
-         a.status !== 'cancelled'
-  )
-  
-  // Find current position
-  const inProgress = sameQueue.find(a => a.status === 'in_progress')
-  const currentNumber = inProgress ? inProgress.queue_number : 0
-  const waitingAhead = appointment.queue_number - currentNumber - 1
-  
-  if (waitingAhead <= 0) return 'Segera dipanggil'
-  
-  const minutes = waitingAhead * 10
-  if (minutes < 60) return `~${minutes} menit`
-  const hrs = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  return `~${hrs} jam ${mins > 0 ? `${mins} menit` : ''}`
-}
+import { useRealtimeSync } from '@/hooks/use-realtime-sync'
+import type { QueueTicket, QueueUpdateEvent, PatientDashboardData } from '@/types'
+import type { RealtimeMessage } from '@/hooks/use-realtime-sync'
 
-function AppointmentDetailModal({ appointment, onClose }: { appointment: Appointment; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 modal-overlay">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md modal-content">
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Detail Antrian</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">✕</button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white text-xl font-bold">
-              {appointment.queue_number}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">No. Antrian</p>
-              <p className="text-lg font-bold text-slate-900">#{appointment.queue_number}</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {[
-              { label: 'Dokter', value: appointment.doctor?.user?.full_name },
-              { label: 'Spesialisasi', value: appointment.doctor?.specialization },
-              { label: 'Tanggal', value: formatDate(appointment.appointment_date) },
-              { label: 'Jam Praktek', value: appointment.schedule ? `${appointment.schedule.start_time} – ${appointment.schedule.end_time}` : '-' },
-              { label: 'Status', value: null },
-            ].map(({ label, value }) => (
-              <div key={label} className="flex justify-between items-center py-2 border-b last:border-0">
-                <span className="text-sm text-muted-foreground">{label}</span>
-                {label === 'Status' ? (
-                  <Badge variant={
-                    appointment.status === 'waiting' ? 'secondary'
-                    : appointment.status === 'in_progress' ? 'default'
-                    : appointment.status === 'completed' ? 'outline'
-                    : 'destructive'
-                  }>
-                    {appointment.status === 'waiting' ? 'Menunggu'
-                      : appointment.status === 'in_progress' ? 'Ditangani'
-                      : appointment.status === 'completed' ? 'Selesai' : 'Dibatalkan'}
-                  </Badge>
-                ) : (
-                  <span className="text-sm font-medium">{value}</span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {appointment.cancel_reason && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
-              <p className="text-xs text-red-600 font-medium">Alasan Pembatalan</p>
-              <p className="text-sm mt-0.5">{appointment.cancel_reason}</p>
-            </div>
-          )}
-        </div>
-        <div className="px-6 pb-5">
-          <Button variant="outline" className="w-full" onClick={onClose}>Tutup</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function RatingModal({ appointment, onClose, onSuccess }: { appointment: Appointment; onClose: () => void; onSuccess: () => void }) {
-  const [score, setScore] = useState(0)
-  const [comment, setComment] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const handleSubmit = async () => {
-    if (score === 0) {
-      toast.error('Pilih rating', 'Silakan pilih rating bintang terlebih dahulu')
-      return
-    }
-
-    setIsSubmitting(true)
-    try {
-      await ratingsApi.create({
-        appointment_id: appointment.id,
-        score,
-        comment: comment.trim() || undefined,
-      })
-      toast.success('Rating berhasil dikirim', 'Terima kasih atas feedback Anda!')
-      onSuccess()
-      onClose()
-    } catch (error: any) {
-      toast.error('Gagal mengirim rating', error.response?.data?.message || 'Terjadi kesalahan')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 modal-overlay">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md modal-content">
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Beri Rating</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">✕</button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <p className="text-sm text-slate-600 mb-1">Dokter</p>
-            <p className="font-semibold text-slate-900">Dr. {appointment.doctor?.user?.full_name}</p>
-            <p className="text-xs text-slate-500">{appointment.doctor?.specialization}</p>
-          </div>
-
-          <div>
-            <p className="text-sm text-slate-600 mb-3">Rating Anda</p>
-            <div className="flex justify-center">
-              <StarRating rating={score} interactive onChange={setScore} size="lg" />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm text-slate-600 mb-2 block">Komentar (opsional)</label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Bagikan pengalaman Anda..."
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-              rows={3}
-            />
-          </div>
-        </div>
-        <div className="px-6 pb-5 flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={isSubmitting}>
-            Batal
-          </Button>
-          <Button className="flex-1 gradient-primary text-white border-0" onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : 'Kirim Rating'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function QRModal({ appointment, qrImage, onClose }: { appointment: Appointment; qrImage: string; onClose: () => void }) {
-  const handleDownload = () => {
-    const link = document.createElement('a')
-    link.href = qrImage
-    link.download = `qr-antrian-${appointment.queue_number}.png`
-    link.click()
-  }
-
-  const handleShare = async () => {
-    try {
-      const response = await fetch(qrImage)
-      const blob = await response.blob()
-      const file = new File([blob], `qr-antrian-${appointment.queue_number}.png`, { type: 'image/png' })
-      
-      if (navigator.share && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          title: `QR Check-in Antrian #${appointment.queue_number}`,
-          text: `QR Code untuk check-in antrian #${appointment.queue_number} di klinik`,
-          files: [file]
-        })
-      } else {
-        await navigator.clipboard.writeText(qrImage)
-        toast.success('Link disalin', 'Link QR code telah disalin ke clipboard')
-      }
-    } catch {
-      toast.error('Gagal membagikan', 'Tidak dapat membagikan QR code')
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 modal-overlay" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm modal-content overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
-        <div className="relative">
-          <button 
-            onClick={onClose} 
-            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/90 hover:bg-white shadow-lg text-slate-500 hover:text-slate-700 transition-all"
-          >
-            <X className="size-5" />
-          </button>
-          
-          <div className="gradient-primary px-6 pt-8 pb-12 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm mb-3">
-              <QrCode className="size-7 text-white" />
-            </div>
-            <h3 className="text-xl font-bold text-white">QR Check-in</h3>
-            <p className="text-blue-100 text-sm mt-1">Scan di resepsionis klinik</p>
-          </div>
-        </div>
-
-        <div className="px-6 -mt-6 relative">
-          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5">
-            <div className="bg-linear-to-br from-slate-50 to-slate-100 rounded-xl p-4 mb-4">
-              <img 
-                src={qrImage} 
-                alt="QR Code" 
-                className="w-full max-w-[200px] h-auto mx-auto"
-              />
-            </div>
-            
-            <div className="text-center">
-              <p className="text-xs text-slate-500 mb-1">Nomor Antrian</p>
-              <p className="text-3xl font-bold text-slate-900">#{appointment.queue_number}</p>
-              <p className="text-sm text-slate-500 mt-2">Dr. {appointment.doctor?.user?.full_name}</p>
-              <p className="text-xs text-slate-400">{appointment.doctor?.specialization}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-6 py-5 space-y-3">
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownload}
-              className="flex-1 gap-2 rounded-xl border-slate-200 text-slate-600 hover:text-primary hover:bg-blue-50 hover:border-blue-200"
-            >
-              <Download className="size-4" />
-              Unduh
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleShare}
-              className="flex-1 gap-2 rounded-xl border-slate-200 text-slate-600 hover:text-primary hover:bg-blue-50 hover:border-blue-200"
-            >
-              <Share2 className="size-4" />
-              Bagikan
-            </Button>
-          </div>
-          
-          <Button
-            className="w-full rounded-xl gradient-primary text-white border-0"
-            onClick={onClose}
-          >
-            Tutup
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-
-export default function MyQueuePage() {
+/**
+ * PatientMyQueuePage — Live queue position page for patients.
+ *
+ * Displays:
+ * - Hero queue card with mono-xl number, doctor, current position,
+ *   estimated wait, and progress visualization (transform + opacity)
+ * - "You are next" notice when position === 1 (non-modal alert)
+ * - Confirmation message when status transitions to In Consultation
+ * - EmptyState when no active ticket (actions: Book Appointment / Check-in)
+ * - Integrates use-realtime-sync for queue_update events (update within 1000ms)
+ * - aria-live announcement on queue position changes
+ *
+ * Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6
+ */
+export default function PatientMyQueuePage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [page, setPage] = useState(1)
-  const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
-  const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null)
-  const [appointmentToRate, setAppointmentToRate] = useState<Appointment | null>(null)
-  const [qrAppointment, setQrAppointment] = useState<Appointment | null>(null)
-  const [qrImage, setQrImage] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['my-appointments', page],
-    queryFn: () => appointmentApi.getMy({ page, per_page: 10 }),
+  // Track last update time for disconnection banner
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  // Track previous position for transition detection
+  const [prevStatus, setPrevStatus] = useState<string | null>(null)
+  // Track if status just transitioned to in_consultation
+  const [showConsultationConfirmation, setShowConsultationConfirmation] = useState(false)
+  // aria-live announcement text
+  const [liveAnnouncement, setLiveAnnouncement] = useState('')
+
+  // Fetch patient dashboard data (includes active_queue_ticket)
+  const { data: dashData, isLoading: dashLoading } = useQuery({
+    queryKey: queryKeys.dashboard.patient(),
+    queryFn: () => dashboardApi.getPatientStats(),
+    staleTime: STALE_TIME_DASHBOARD,
+    gcTime: GC_TIME_DASHBOARD,
+    refetchInterval: 30000,
   })
 
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => appointmentApi.cancel(id),
-    onSuccess: () => {
-      toast.success('Antrian berhasil dibatalkan')
-      queryClient.invalidateQueries({ queryKey: ['my-appointments'] })
-      setAppointmentToCancel(null)
-    },
-    onError: () => toast.error('Gagal membatalkan antrian'),
+  // Also fetch appointments for fallback
+  const { data: apptData, isLoading: apptLoading } = useQuery({
+    queryKey: queryKeys.appointments.my(),
+    queryFn: () => appointmentApi.getMy({ per_page: 10 }),
+    staleTime: STALE_TIME_DASHBOARD,
+    gcTime: GC_TIME_DASHBOARD,
   })
 
-  const rawAppointments = data?.data?.data ?? []
-  const meta = data?.data?.meta
-  
-  // Sort appointments: waiting/in_progress first (active), then completed/cancelled
-  const appointments = [...rawAppointments].sort((a, b) => {
-    const statusOrder: Record<string, number> = {
-      'waiting': 0,
-      'in_progress': 1,
-      'completed': 2,
-      'cancelled': 3,
+  // Extract active queue ticket from dashboard data
+  const stats = dashData?.data?.data as PatientDashboardData | undefined
+  const activeTicket: QueueTicket | null = stats?.active_queue_ticket ?? null
+
+  // Fallback: derive from appointments if dashboard doesn't provide it
+  const appointments = apptData?.data?.data ?? []
+  const activeAppointment = Array.isArray(appointments)
+    ? appointments.find((a) => a.status === 'waiting' || a.status === 'in_progress')
+    : null
+
+  // Derive ticket data from either source
+  const ticket: QueueTicket | null = activeTicket ?? (activeAppointment ? {
+    queue_number: activeAppointment.queue_number,
+    doctor_id: activeAppointment.doctor_id,
+    doctor_name: activeAppointment.doctor?.user?.full_name ?? 'Dokter',
+    patient_id: activeAppointment.patient_id ?? '',
+    current_position: activeAppointment.queue_number,
+    estimated_wait_minutes: (activeAppointment.queue_number - 1) * 10,
+    status: activeAppointment.status === 'in_progress' ? 'in_consultation' : 'waiting',
+    appointment_id: activeAppointment.id,
+  } : null)
+
+  // Detect status transition to in_consultation (Requirement 18.4)
+  useEffect(() => {
+    if (ticket && prevStatus && prevStatus !== ticket.status) {
+      if (ticket.status === 'in_consultation') {
+        setShowConsultationConfirmation(true)
+        setLiveAnnouncement('Anda sedang ditangani oleh dokter. Silakan menuju ruang konsultasi.')
+      }
     }
-    return (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99)
+    if (ticket) {
+      setPrevStatus(ticket.status)
+    }
+  }, [ticket?.status])
+
+  // Realtime sync for queue_update events (Requirement 18.5)
+  const handleRealtimeMessage = useCallback((message: RealtimeMessage) => {
+    if (message.type === 'queue_update') {
+      const event = message.data as QueueUpdateEvent
+      // Invalidate queries to get fresh data within 1000ms
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.patient() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.appointments.my() })
+      setLastUpdated(new Date())
+
+      // Update aria-live announcement
+      if (ticket && event.doctor_id === ticket.doctor_id) {
+        const newPosition = ticket.queue_number - event.current_number
+        if (newPosition === 1) {
+          setLiveAnnouncement('Anda berikutnya! Bersiaplah untuk dipanggil.')
+        } else if (newPosition > 0) {
+          setLiveAnnouncement(`Posisi antrian Anda sekarang: ${newPosition}`)
+        }
+      }
+    }
+  }, [ticket, queryClient])
+
+  const { connectionState } = useRealtimeSync({
+    channels: ['queue_update'],
+    onMessage: handleRealtimeMessage,
+    refetchKeys: [[...queryKeys.dashboard.patient()], [...queryKeys.appointments.my()]],
+    pollingFallback: true,
+    pollingInterval: 30000,
   })
-  const totalPages = meta?.total_pages ?? 1
+
+  const isLoading = dashLoading && apptLoading
+  const isDisconnected = connectionState === 'disconnected' || connectionState === 'reconnecting'
+
+  // Progress visualization: based on position (lower position = more progress)
+  const getProgressWidth = () => {
+    if (!ticket) return 0
+    if (ticket.status === 'in_consultation') return 100
+    if (ticket.current_position <= 1) return 90
+    if (ticket.current_position <= 3) return 70
+    if (ticket.current_position <= 5) return 50
+    return 30
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Antrian Saya</h1>
-        <p className="text-slate-500 mt-1">Riwayat dan status antrian kunjungan Anda</p>
+      {/* Page Header */}
+      <PageHeader
+        title="Antrian Saya"
+        subtitle="Pantau posisi antrian Anda secara real-time"
+        category="patient"
+      />
+
+      {/* Disconnection Banner (Requirement 25.4) */}
+      {isDisconnected && (
+        <DisconnectionBanner
+          state={connectionState === 'reconnecting' ? 'reconnecting' : 'disconnected'}
+          lastUpdated={lastUpdated}
+        />
+      )}
+
+      {/* aria-live region for screen reader announcements (Requirement 18.5) */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {liveAnnouncement}
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <ClipboardList className="size-4" />
-            {meta ? `${meta.total} antrian` : 'Antrian Saya'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : appointments.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <ClipboardList className="size-12 mx-auto mb-3 opacity-20" />
-              <p className="text-sm font-medium">Belum ada antrian</p>
-              <p className="text-xs mt-1">Daftarkan antrian pertama Anda sekarang</p>
-              <Button asChild className="mt-4 gradient-primary text-white border-0" size="sm">
-                <a href="/patient/book">Daftar Antrian</a>
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {appointments.map((appt, idx) => (
-                <div key={appt.id} className="p-4 rounded-xl border border-slate-100 bg-white hover:border-slate-200 hover:shadow-md transition-all stagger-item" style={{ animationDelay: `${idx * 60}ms` }}>
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-md shadow-blue-500/30">
-                      {appt.queue_number}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-base font-bold text-slate-800">Dr. {appt.doctor?.user?.full_name}</h3>
-                          <p className="text-xs font-medium text-slate-500">{appt.doctor?.specialization}</p>
-                        </div>
-                        <Badge variant={
-                          appt.status === 'waiting' ? 'secondary'
-                          : appt.status === 'in_progress' ? 'default'
-                          : appt.status === 'completed' ? 'outline'
-                          : 'destructive'
-                        } className="shrink-0">
-                          {appt.status === 'waiting' ? 'Menunggu'
-                            : appt.status === 'in_progress' ? 'Ditangani'
-                            : appt.status === 'completed' ? 'Selesai' : 'Dibatalkan'}
-                        </Badge>
-                      </div>
-                      
-                      {/* Date & Time */}
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg w-fit">
-                        <span className="flex items-center gap-1 font-medium text-slate-600">
-                          <Clock className="size-3.5 text-primary" />
-                          {formatDate(appt.appointment_date)}
-                        </span>
-                        {appt.schedule && (
-                          <>
-                            <span className="text-slate-300">|</span>
-                            <span className="font-medium">
-                              {appt.schedule.start_time} – {appt.schedule.end_time}
-                            </span>
-                          </>
-                        )}
-                      </div>
+      {/* Loading State */}
+      {isLoading && (
+        <LoadingSkeleton variant="card" count={1} />
+      )}
 
-                      {/* Estimated wait time */}
-                      {(() => {
-                        const est = getEstimatedWait(appt, appointments)
-                        if (!est) return null
-                        return (
-                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium mt-2 ${
-                            est === 'Segera dipanggil' 
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            <Timer className="size-3" />
-                            {est}
-                          </div>
-                        )
-                      })()}
-
-                      {/* Action Buttons */}
-                      <div className="flex flex-wrap items-center gap-2 mt-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedAppt(appt)}
-                          className="h-8 text-xs font-medium bg-white text-slate-600 hover:text-primary hover:bg-blue-50 border-slate-200"
-                        >
-                          <Eye className="size-3.5 mr-1" /> Detail
-                        </Button>
-                        {appt.status === 'waiting' && (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                try {
-                                  const token = localStorage.getItem('mediqueue-auth')
-                                  const authToken = token ? JSON.parse(token).state?.token : ''
-                                  const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'}/appointments/${appt.id}/qr`, {
-                                    headers: {
-                                      'Authorization': `Bearer ${authToken}`,
-                                    },
-                                  })
-                                  const blob = await response.blob()
-                                  const url = URL.createObjectURL(blob)
-                                  setQrImage(url)
-                                  setQrAppointment(appt)
-                                } catch {
-                                  toast.error('Gagal memuat QR code')
-                                }
-                              }}
-                              className="h-8 text-xs bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
-                            >
-                              <QrCode className="size-3.5 mr-1" /> QR
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setAppointmentToCancel(appt.id)
-                              }}
-                              disabled={cancelMutation.isPending}
-                              className="h-8 text-xs shadow-sm bg-red-500 hover:bg-red-600"
-                            >
-                              Batalkan
-                            </Button>
-                          </>
-                        )}
-                        {appt.status === 'completed' && !appt.medical_record && (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => setAppointmentToRate(appt)}
-                            className="h-8 text-xs gradient-primary text-white border-0 shadow-sm"
-                          >
-                            ⭐ Rating
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+      {/* In Consultation Confirmation (Requirement 18.4) */}
+      {showConsultationConfirmation && (
+        <Card surface="elevated" padding="lg" className="relative overflow-hidden">
+          <div
+            className="absolute inset-0 opacity-8"
+            style={{
+              background: 'linear-gradient(135deg, var(--accent-success, #059669) 0%, var(--category-patient) 100%)',
+            }}
+            aria-hidden="true"
+          />
+          <CardContent className="relative z-10">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--accent-success, #059669) 12%, transparent)',
+                }}
+              >
+                <CheckCircle2
+                  className="size-8"
+                  style={{ color: 'var(--accent-success, #059669)' }}
+                  aria-hidden="true"
+                />
+              </div>
+              <div>
+                <h2
+                  className="text-heading-md font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Anda Sedang Ditangani
+                </h2>
+                <p
+                  className="text-body-md mt-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Silakan menuju ruang konsultasi dokter Anda.
+                </p>
+              </div>
+              {ticket && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Stethoscope className="size-4" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true" />
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {ticket.doctor_name}
+                  </span>
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </CardContent>
+        </Card>
+      )}
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-              <p className="text-xs text-muted-foreground">Halaman {page} dari {totalPages}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>
-                  ← Sebelumnya
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}>
-                  Berikutnya →
-                </Button>
+      {/* Hero Queue Card (Requirement 18.1, 18.2, 18.3) */}
+      {!isLoading && ticket && ticket.status !== 'in_consultation' && (
+        <Card surface="elevated" padding="lg" className="relative overflow-hidden">
+          {/* Background gradient */}
+          <div
+            className="absolute inset-0 opacity-5"
+            style={{
+              background: 'linear-gradient(135deg, var(--category-patient) 0%, var(--accent-primary) 100%)',
+            }}
+            aria-hidden="true"
+          />
+
+          <CardContent className="relative z-10">
+            {/* Header label */}
+            <div className="flex items-center justify-between mb-6">
+              <span
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: 'var(--category-patient)' }}
+              >
+                Antrian Aktif
+              </span>
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--category-patient) 10%, transparent)',
+                  color: 'var(--category-patient)',
+                }}
+              >
+                <div
+                  className="w-2 h-2 rounded-full animate-pulse"
+                  style={{ backgroundColor: 'var(--category-patient)' }}
+                  aria-hidden="true"
+                />
+                Live
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {selectedAppt && (
-        <AppointmentDetailModal appointment={selectedAppt} onClose={() => setSelectedAppt(null)} />
+            {/* Queue Number — mono-xl (Requirement 18.1) */}
+            <div className="text-center mb-6">
+              <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>
+                Nomor Antrian
+              </p>
+              <span
+                className="text-mono-xl"
+                style={{
+                  color: 'var(--accent-primary)',
+                  transition: 'transform var(--duration-normal, 300ms) ease, opacity var(--duration-normal, 300ms) ease',
+                }}
+                aria-label={`Nomor antrian ${ticket.queue_number}`}
+              >
+                {ticket.queue_number}
+              </span>
+            </div>
+
+            {/* Queue Details Grid */}
+            <div
+              className="grid grid-cols-2 gap-4 mb-6"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {/* Doctor */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--category-doctor) 10%, transparent)' }}
+                >
+                  <Stethoscope className="size-4" style={{ color: 'var(--category-doctor)' }} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Dokter</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {ticket.doctor_name}
+                  </p>
+                </div>
+              </div>
+
+              {/* Current Position */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--category-patient) 10%, transparent)' }}
+                >
+                  <ListOrdered className="size-4" style={{ color: 'var(--category-patient)' }} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Posisi</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    #{ticket.current_position}
+                  </p>
+                </div>
+              </div>
+
+              {/* Estimated Wait */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--accent-warning, #d97706) 10%, transparent)' }}
+                >
+                  <Clock className="size-4" style={{ color: 'var(--accent-warning, #d97706)' }} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Estimasi Tunggu</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {ticket.estimated_wait_minutes} menit
+                  </p>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--accent-success, #059669) 10%, transparent)' }}
+                >
+                  <CheckCircle2 className="size-4" style={{ color: 'var(--accent-success, #059669)' }} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Status</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {ticket.status === 'waiting' ? 'Menunggu' : 'Dipanggil'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Visualization (transform + opacity) — Requirement 18.1 */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                  Progres Antrian
+                </span>
+                <span className="text-xs font-medium" style={{ color: 'var(--category-patient)' }}>
+                  {getProgressWidth()}%
+                </span>
+              </div>
+              <div
+                className="h-2 rounded-full overflow-hidden"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--category-patient) 12%, transparent)' }}
+                role="progressbar"
+                aria-valuenow={getProgressWidth()}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Progres antrian"
+              >
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${getProgressWidth()}%`,
+                    backgroundColor: 'var(--category-patient)',
+                    transform: 'translateX(0)',
+                    opacity: 1,
+                    transition: 'transform var(--duration-normal, 300ms) ease, opacity var(--duration-normal, 300ms) ease, width var(--duration-normal, 300ms) ease',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* "You are next" notice — Requirement 18.3 */}
+            {ticket.current_position === 1 && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="flex items-center gap-3 p-4 rounded-[var(--radius-md)] mb-4"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--accent-success, #059669) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent-success, #059669) 25%, transparent)',
+                }}
+              >
+                <div
+                  className="p-2 rounded-full shrink-0"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--accent-success, #059669) 15%, transparent)' }}
+                >
+                  <Bell
+                    className="size-5 animate-bounce"
+                    style={{ color: 'var(--accent-success, #059669)' }}
+                    aria-hidden="true"
+                  />
+                </div>
+                <div>
+                  <p
+                    className="text-sm font-semibold"
+                    style={{ color: 'var(--accent-success, #059669)' }}
+                  >
+                    Anda Berikutnya!
+                  </p>
+                  <p
+                    className="text-xs mt-0.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Bersiaplah, Anda akan segera dipanggil oleh dokter.
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {/* Custom Cancel Confirmation Modal */}
-      {appointmentToCancel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 modal-overlay">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm modal-content p-6 text-center">
-            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="size-8 text-red-600" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Batalkan Antrian?</h3>
-            <p className="text-sm text-slate-500 mb-6">
-              Apakah Anda yakin ingin membatalkan antrian ini? Tindakan ini tidak dapat dibatalkan.
-            </p>
-            <div className="flex gap-3 w-full">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-xl"
-                onClick={() => setAppointmentToCancel(null)}
-                disabled={cancelMutation.isPending}
-              >
-                Kembali
-              </Button>
-              <Button
-                variant="destructive"
-                className="flex-1 rounded-xl"
-                onClick={() => cancelMutation.mutate(appointmentToCancel)}
-                disabled={cancelMutation.isPending}
-              >
-                {cancelMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : 'Ya, Batalkan'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {appointmentToRate && (
-        <RatingModal
-          appointment={appointmentToRate}
-          onClose={() => setAppointmentToRate(null)}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ['my-appointments'] })
+      {/* EmptyState — Requirement 18.6 */}
+      {!isLoading && !ticket && !showConsultationConfirmation && (
+        <EmptyState
+          icon={ListOrdered}
+          title="Tidak Ada Antrian Aktif"
+          description="Anda belum memiliki antrian aktif saat ini. Daftar antrian baru atau lakukan check-in di klinik."
+          action={{
+            label: 'Daftar Antrian',
+            onClick: () => navigate('/patient/book'),
           }}
         />
       )}
 
-      {qrAppointment && qrImage && (
-        <QRModal
-          appointment={qrAppointment}
-          qrImage={qrImage}
-          onClose={() => { setQrAppointment(null); setQrImage(null) }}
-        />
+      {/* Secondary action for empty state: Check-in */}
+      {!isLoading && !ticket && !showConsultationConfirmation && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="md"
+            asChild
+          >
+            <Link to="/check-in">
+              <QrCode className="size-4 mr-2" aria-hidden="true" />
+              Check-in di Klinik
+            </Link>
+          </Button>
+        </div>
       )}
     </div>
   )

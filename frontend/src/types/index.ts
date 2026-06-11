@@ -1,13 +1,21 @@
+export interface Role {
+  id: string
+  role_name: string
+}
+
+export type UserRole = 'Admin' | 'Doctor' | 'Patient'
+
 export interface User {
   id: string
+  username: string
   email: string
-  role: 'admin' | 'doctor' | 'patient'
-  full_name: string
-  phone: string
+  full_name?: string
+  phone?: string
   nik?: string
-  gender?: string
+  gender?: 'male' | 'female'
   address?: string
-  blood_type?: string
+  blood_type?: 'A' | 'B' | 'AB' | 'O'
+  role?: Role
   is_active: boolean
   patient?: Patient
   doctor?: Doctor
@@ -16,7 +24,9 @@ export interface User {
 export interface Patient {
   id: string
   user_id: string
-  nik: string
+  full_name: string
+  phone: string
+  nik?: string
   date_of_birth?: string
   gender?: 'male' | 'female'
   address?: string
@@ -28,6 +38,8 @@ export interface Patient {
 export interface Doctor {
   id: string
   user_id: string
+  full_name: string
+  phone: string
   specialization: string
   sip_number: string
   user?: User
@@ -43,6 +55,19 @@ export interface DoctorSchedule {
   max_patient: number
   is_active: boolean
   doctor?: Doctor
+}
+
+export interface ScheduleAvailability {
+  schedule_id: string
+  doctor_id: string
+  day_of_week: number
+  start_time: string
+  end_time: string
+  max_patient: number
+  is_active: boolean
+  date: string // YYYY-MM-DD format
+  booked_count: number
+  available_count: number
 }
 
 export type AppointmentStatus = 'waiting' | 'in_progress' | 'completed' | 'cancelled'
@@ -118,3 +143,133 @@ export interface DashboardStats {
   completed_today: number
   waiting_now: number
 }
+
+// ── Extended Dashboard Stats ──
+
+export interface AdminDashboardStats {
+  total_appointments: number
+  total_checkins: number
+  completed_visits: number
+  no_shows: number
+  avg_wait_time_minutes: number
+  active_doctor_count: number
+}
+
+export interface DoctorDashboardStats {
+  total_scheduled: number
+  checked_in_waiting: number
+  completed_consultations: number
+  avg_consultation_duration_minutes: number
+}
+
+export interface PatientDashboardData {
+  next_appointment: Appointment | null
+  active_queue_ticket: QueueTicket | null
+  upcoming_appointments_count: number
+  completed_visits_count: number
+  recent_medical_records: MedicalRecord[]
+}
+
+// ── Queue Types ──
+
+export type QueueStatus = 'waiting' | 'called' | 'in_consultation' | 'completed' | 'no_show'
+
+export interface QueueTicket {
+  queue_number: number
+  doctor_id: string
+  doctor_name: string
+  patient_id: string
+  patient_name?: string
+  current_position: number
+  estimated_wait_minutes: number
+  status: QueueStatus
+  appointment_id: string
+  checked_in_at?: string
+}
+
+// ── WebSocket Event Types ──
+
+export interface QueueUpdateEvent {
+  doctor_id: string
+  current_number: number
+  next_numbers: number[]
+  waiting_count: number
+}
+
+export interface CheckinEvent {
+  patient_name: string
+  queue_number: number
+  doctor_id: string
+  timestamp: string
+}
+
+export interface AppointmentStatusEvent {
+  appointment_id: string
+  status: AppointmentStatus
+  updated_at: string
+}
+
+// ── Symptom Screening ──
+
+export type SymptomSeverity = 'mild' | 'moderate' | 'severe'
+
+export interface SymptomScreening {
+  id: string
+  appointment_id: string
+  patient_id: string
+  symptoms: string
+  severity: SymptomSeverity
+  additional_notes?: string
+  duration?: string
+  temperature?: string
+  ai_summary?: string
+  created_at: string
+  updated_at: string
+}
+
+// ── Analytics Data ──
+
+export interface DailyAppointmentCount {
+  date: string
+  count: number
+}
+
+export interface StatusDistribution {
+  waiting: number
+  in_progress: number
+  completed: number
+  cancelled: number
+}
+
+export interface DoctorAppointmentCount {
+  doctor_id: string
+  doctor_name: string
+  specialization: string
+  count: number
+}
+
+export interface HourlyDistribution {
+  hour: number
+  count: number
+}
+
+export interface WeeklyTrend {
+  week: string
+  count: number
+}
+
+export interface AnalyticsData {
+  appointments_by_day: DailyAppointmentCount[]
+  status_distribution: StatusDistribution
+  appointments_by_doctor: DoctorAppointmentCount[]
+  peak_hours: HourlyDistribution[]
+  cancellation_rate: number
+  weekly_trends: WeeklyTrend[]
+  total_this_month: number
+  total_last_month: number
+  avg_per_day: number
+}
+
+// ── String Key Type for i18n ──
+
+export type StringKey = string & { readonly __brand: unique symbol }

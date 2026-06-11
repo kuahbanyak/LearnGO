@@ -1,0 +1,190 @@
+/**
+ * MediQueue Design System — Interactive Element States
+ * "Soft Machine Medical" — consistent visual feedback across all interactive elements
+ *
+ * This file defines global interactive states for elements NOT covered by CVA components
+ * (Button, Card). It covers:
+ *   - Links (a elements)
+ *   - Form inputs (input, textarea, select)
+ *   - Generic interactive elements ([role="button"], [tabindex])
+ *
+ * CVA components (Button, Card interactive variant) already define their own states
+ * via Tailwind utility classes. This file handles the rest.
+ *
+ * Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7
+ */
+
+/* ============================================================
+ * LINKS — <a> elements
+ * Default, hover, focus-visible, active states.
+ * Requirements: 14.1, 14.2, 14.3, 14.4
+ * ============================================================ */
+
+a {
+  color: var(--accent-primary, #0284c7);
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition-property: color, text-decoration-color, opacity;
+  transition-duration: var(--duration-fast, 150ms);
+  transition-timing-function: var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* Hover: reveal underline + slight brightness shift — Req 14.2 */
+a:hover {
+  text-decoration-color: currentColor;
+  color: color-mix(in srgb, var(--accent-primary, #0284c7) 85%, var(--text-primary, #1a1714) 15%);
+}
+
+/* Focus-visible: 2px ring with 2px offset using accent-primary — Req 14.3 */
+a:focus-visible {
+  outline: 2px solid var(--accent-primary, #0284c7);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 0.375rem);
+  text-decoration-color: transparent;
+}
+
+/* Active/pressed: scale(0.97) within 150ms — Req 14.4 */
+a:active {
+  transform: scale(0.97);
+  transition-duration: var(--duration-fast, 150ms);
+}
+
+/* ============================================================
+ * FORM INPUTS — input, textarea, select
+ * Focus-visible ring, disabled state.
+ * Requirements: 14.1, 14.3, 14.5
+ * ============================================================ */
+
+input,
+textarea,
+select {
+  transition-property: border-color, box-shadow, background-color;
+  transition-duration: var(--duration-fast, 150ms);
+  transition-timing-function: var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* Focus-visible: 2px ring using accent-primary — Req 14.3 */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--surface-raised, #ffffff),
+    0 0 0 4px var(--accent-primary, #0284c7);
+}
+
+/* Disabled: opacity 0.5, pointer-events none — Req 14.5 */
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Req 14.7: Disabled inputs do NOT show focus-visible ring on programmatic focus */
+input:disabled:focus-visible,
+textarea:disabled:focus-visible,
+select:disabled:focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+
+/* ============================================================
+ * GENERIC INTERACTIVE ELEMENTS
+ * Elements with role="button" or explicit tabindex that are not
+ * native buttons or links (e.g., custom toggle components, clickable divs).
+ * Requirements: 14.1, 14.2, 14.3, 14.4, 14.5
+ * ============================================================ */
+
+[role="button"],
+[tabindex]:not(a):not(button):not(input):not(textarea):not(select) {
+  transition-property: background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: var(--duration-fast, 150ms);
+  transition-timing-function: var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* Hover: visual change within 150ms — Req 14.2 */
+[role="button"]:hover:not([disabled]):not([aria-disabled="true"]),
+[tabindex]:not(a):not(button):not(input):not(textarea):not(select):hover:not([disabled]):not([aria-disabled="true"]) {
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+/* Focus-visible: 2px ring with 2px offset — Req 14.3 */
+[role="button"]:focus-visible,
+[tabindex]:not(a):not(button):not(input):not(textarea):not(select):focus-visible {
+  outline: 2px solid var(--accent-primary, #0284c7);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 0.375rem);
+}
+
+/* Active/pressed: scale(0.97) within 150ms — Req 14.4 */
+[role="button"]:active:not([disabled]):not([aria-disabled="true"]),
+[tabindex]:not(a):not(button):not(input):not(textarea):not(select):active:not([disabled]):not([aria-disabled="true"]) {
+  transform: scale(0.97);
+}
+
+/* Disabled: opacity 0.5, pointer-events none — Req 14.5 */
+[role="button"][disabled],
+[role="button"][aria-disabled="true"],
+[tabindex][disabled],
+[tabindex][aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Req 14.7: Disabled generic interactive elements do NOT show focus-visible ring */
+[role="button"][disabled]:focus-visible,
+[role="button"][aria-disabled="true"]:focus-visible,
+[tabindex][disabled]:focus-visible,
+[tabindex][aria-disabled="true"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ============================================================
+ * GLOBAL FOCUS-VISIBLE RING RESET FOR DISABLED NATIVE BUTTONS
+ * Native <button disabled> cannot receive keyboard focus, but
+ * programmatic focus (element.focus()) can still trigger :focus-visible
+ * in some browsers. This ensures no ring appears.
+ * Requirement 14.7
+ * ============================================================ */
+
+button:disabled:focus-visible {
+  outline: none;
+  box-shadow: none;
+  /* Tailwind's focus-visible:ring-2 uses box-shadow — reset both */
+  --tw-ring-shadow: none;
+  --tw-ring-offset-shadow: none;
+}
+
+/* ============================================================
+ * REDUCED MOTION — INTERACTIVE STATE CHANGES
+ * Under reduced motion, state changes are instantaneous (0.01ms)
+ * while visual property differences (color, opacity, scale) are preserved.
+ * The global safety net in motion.css handles animation-duration and
+ * transition-duration. This block ensures interactive elements comply.
+ * Requirement 14.6
+ * ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  a,
+  input,
+  textarea,
+  select,
+  [role="button"],
+  [tabindex]:not(a):not(button):not(input):not(textarea):not(select) {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+[data-reduced-motion="true"] a,
+[data-reduced-motion="true"] input,
+[data-reduced-motion="true"] textarea,
+[data-reduced-motion="true"] select,
+[data-reduced-motion="true"] [role="button"],
+[data-reduced-motion="true"] [tabindex]:not(a):not(button):not(input):not(textarea):not(select) {
+  transition-duration: 0.01ms !important;
+}

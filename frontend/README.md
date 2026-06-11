@@ -80,6 +80,7 @@ frontend/src/
 │   │   ├── appointments.tsx   ← All-clinic appointments view + Export PDF ⭐
 │   │   ├── users.tsx          ← User account management
 │   │   ├── analytics.tsx      ← Analytics dashboard with charts  ⭐
+│   │   ├── scan-checkin.tsx   ← QR scanner for patient check-in ⭐ NEW
 │   │   └── tv-display.tsx     ← Full-screen live queue board (no sidebar)
 │   │
 │   ├── doctor/
@@ -527,6 +528,7 @@ instance.interceptors.request.use((config) => {
 | Appointments | `/admin/appointments` | All-clinic queue view + Export PDF ⭐ |
 | Users | `/admin/users` | Activate/deactivate user accounts |
 | Analytics | `/admin/analytics` | Charts: daily trends, peak hours ⭐ |
+| Scan Check-in | `/admin/scan-checkin` | QR scanner for patient check-in (camera/upload/manual) ⭐ NEW |
 | TV Display | `/admin/tv-display` | Full-screen queue board (no sidebar) |
 
 ### Doctor Pages
@@ -711,6 +713,7 @@ export function useWebSocket(url: string) {
 
 ### 2. QR Code Check-in ⭐
 
+**Patient View - QR Code Generation:**
 ```tsx
 // Generate QR Code
 const response = await fetch(`${API_URL}/appointments/${id}/qr`, {
@@ -718,6 +721,27 @@ const response = await fetch(`${API_URL}/appointments/${id}/qr`, {
 })
 const blob = await response.blob()
 const qrImageUrl = URL.createObjectURL(blob)
+```
+
+**Admin View - QR Scanner (NEW):**
+```tsx
+// pages/admin/scan-checkin.tsx
+// Three check-in methods available:
+// 1. Camera Scanner - Real-time QR scanning via webcam
+// 2. File Upload - Upload QR code image (PNG, JPG, etc.)
+// 3. Manual Entry - Paste token or URL
+
+import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode'
+
+// Camera scanner
+const scanner = new Html5QrcodeScanner('qr-reader', {
+  fps: 10,
+  qrbox: { width: 250, height: 250 },
+}, false)
+
+// File upload scanner
+const qrCode = new Html5Qrcode('qr-reader-hidden')
+const decodedText = await qrCode.scanFile(file, true)
 
 // Check-in via token
 const checkIn = async (token: string) => {
@@ -804,6 +828,7 @@ function StarRating({ rating, onChange, interactive = false }) {
 | 8 | Appointment Reschedule UI | ✅ |
 | 9 | Mobile Responsive Design | ✅ |
 | 10 | PWA Ready | ✅ |
+| 11 | Admin QR Scanner (Camera/Upload) | ✅ NEW |
 
 ---
 

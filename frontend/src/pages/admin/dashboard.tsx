@@ -1,143 +1,347 @@
-import { useQuery } from '@tanstack/react-query'
-import { Users, UserCog, Calendar, Clock, CheckCircle, ArrowRight, TrendingUp, Activity } from 'lucide-react'
+import { useRef, useCallback, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Calendar,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Timer,
+  UserCog,
+  QrCode,
+  BarChart3,
+  ArrowRight,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { dashboardApi } from '@/api/dashboard'
 import { appointmentApi } from '@/api/appointments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { DashboardStats } from '@/types'
-import { Link } from 'react-router-dom'
+import { StatCard } from '@/components/shared/stat-card'
+import { PageHeader } from '@/components/shared/page-header'
+import { ErrorState } from '@/components/shared/error-state'
+import { useStaggerReveal } from '@/hooks/use-stagger-reveal'
+import { useRealtimeSync, type RealtimeMessage } from '@/hooks/use-realtime-sync'
+import { queryKeys, queryConfig } from '@/lib/query-keys'
+import type {
+  AdminDashboardStats,
+  Appointment,
+  CheckinEvent,
+} from '@/types'
 
-interface StatCardProps {
-  title: string
-  value: number | undefined
-  icon: React.ElementType
-  gradient: string
-  shadowColor: string
-  loading: boolean
-  trend?: string
-  index: number
-}
-
-function StatCard({ title, value, icon: Icon, gradient, shadowColor, loading, trend, index }: StatCardProps) {
-  return (
-    <div className="stagger-item" style={{ animationDelay: `${index * 80}ms` }}>
-      <Card className="overflow-hidden card-hover border-0 shadow-sm">
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <p className="text-[13px] font-medium text-slate-500">{title}</p>
-              {loading ? (
-                <div className="h-9 w-20 skeleton mt-2 rounded-lg" />
-              ) : (
-                <p className="text-3xl font-bold mt-1.5 text-slate-900 number-animate">{value ?? 0}</p>
-              )}
-              {trend && <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1"><TrendingUp className="size-3" />{trend}</p>}
-            </div>
-            <div className={`p-3 rounded-xl ${gradient} shadow-lg ${shadowColor}`}>
-              <Icon className="size-5 text-white" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+// ── Helpers ──
 
 function statusLabel(s: string) {
   if (s === 'waiting') return 'Menunggu'
   if (s === 'in_progress') return 'Ditangani'
   if (s === 'completed') return 'Selesai'
-  return 'Dibatalkan'
+  if (s === 'cancelled') return 'Dibatalkan'
+  return s
 }
 
-function statusVariant(s: string): 'secondary' | 'default' | 'outline' | 'destructive' {
-  if (s === 'waiting') return 'secondary'
+function statusVariant(s: string): 'secondary' | 'default' | 'outline' | 'destructive' | 'success' | 'warning' {
+  if (s === 'waiting') return 'warning'
   if (s === 'in_progress') return 'default'
+  if (s === 'completed') return 'success'
   if (s === 'cancelled') return 'destructive'
   return 'outline'
 }
 
-export default function AdminDashboard() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin-stats'],
-    queryFn: () => dashboardApi.getAdminStats(),
-    refetchInterval: 30000,
-  })
-
-  // Ambil antrian hari ini (status waiting + in_progress)
+function getTodayDateString(): string {
   const d = new Date()
-  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  const { data: todayData, isLoading: todayLoading } = useQuery({
-    queryKey: ['appointments-today-admin', today],
-    queryFn: () => appointmentApi.getAll({ page: 1, per_page: 8, date: today }),
-    refetchInterval: 15000,
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatTime(timeStr?: string): string {
+  if (!timeStr) return '—'
+  // Handle HH:MM:SS or HH:MM format
+  return timeStr.slice(0, 5)
+}
+
+function formatTimestamp(ts: string): string {
+  try {
+    const date = new Date(ts)
+    return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ts
+  }
+}
+
+// ── Individual Stat Fetchers (for partial failure isolation) ──
+
+interface StatMetric {
+  key: keyof AdminDashboardStats
+  title: string
+  icon: typeof Calendar
+  category: 'admin' | 'doctor' | 'patient' | 'queue' | 'success' | 'warning'
+}
+
+const STAT_METRICS: StatMetric[] = [
+  { key: 'total_appointments', title: 'Total Janji Temu', icon: Calendar, category: 'admin' },
+  { key: 'total_checkins', title: 'Total Check-in', icon: CheckCircle, category: 'queue' },
+  { key: 'completed_visits', title: 'Kunjungan Selesai', icon: CheckCircle, category: 'success' },
+  { key: 'no_shows', title: 'Tidak Hadir', icon: XCircle, category: 'warning' },
+  { key: 'avg_wait_time_minutes', title: 'Rata-rata Tunggu', icon: Timer, category: 'queue' },
+  { key: 'active_doctor_count', title: 'Dokter Aktif', icon: UserCog, category: 'doctor' },
+]
+
+// ── StatCard with Error Isolation ──
+
+interface IsolatedStatCardProps {
+  metric: StatMetric
+  value: number | string | undefined
+  isLoading: boolean
+  isError: boolean
+  onRetry: () => void
+}
+
+function IsolatedStatCard({ metric, value, isLoading, isError, onRetry }: IsolatedStatCardProps) {
+  if (isError) {
+    return (
+      <div className="stagger-item">
+        <div
+          className="rounded-[var(--radius-lg)]"
+          style={{
+            backgroundColor: 'var(--surface-raised)',
+            padding: 'var(--space-6, 1.5rem)',
+            boxShadow: 'var(--shadow-sm)',
+            minHeight: '7.5rem',
+          }}
+        >
+          <ErrorState
+            message="Gagal memuat data"
+            category="network"
+            onRetry={onRetry}
+            retryLabel="Coba Lagi"
+            className="!p-0 !gap-2"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  const displayValue = isLoading
+    ? '—'
+    : metric.key === 'avg_wait_time_minutes'
+      ? `${value ?? 0} min`
+      : (value ?? 0)
+
+  return (
+    <div className="stagger-item">
+      <StatCard
+        title={metric.title}
+        value={displayValue}
+        icon={metric.icon}
+        category={metric.category}
+        animate={true}
+      />
+    </div>
+  )
+}
+
+// ── Recent Check-in Item ──
+
+interface RecentCheckin {
+  patient_name: string
+  queue_number: number
+  timestamp: string
+}
+
+// ── Main Component ──
+
+export default function AdminDashboard() {
+  const queryClient = useQueryClient()
+  const statsGridRef = useRef<HTMLDivElement>(null)
+  const today = getTodayDateString()
+
+  useStaggerReveal(statsGridRef)
+
+  // Track recent check-ins from realtime events
+  const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([])
+
+  // ── Data Fetching ──
+
+  const {
+    data: statsData,
+    isLoading: statsLoading,
+    isError: statsError,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: queryKeys.dashboard.admin(),
+    queryFn: () => dashboardApi.getAdminStats(),
+    staleTime: queryConfig.dashboard.staleTime,
+    gcTime: queryConfig.dashboard.gcTime,
   })
 
-  const stats: DashboardStats | undefined = data?.data?.data
-  const todayAppointments = todayData?.data?.data ?? []
+  const {
+    data: appointmentsData,
+    isLoading: appointmentsLoading,
+  } = useQuery({
+    queryKey: ['appointments-upcoming-admin', today],
+    queryFn: () => appointmentApi.getAll({ page: 1, per_page: 10, date: today }),
+    staleTime: queryConfig.appointments.staleTime,
+    gcTime: queryConfig.appointments.gcTime,
+  })
 
-  const cards = [
-    { title: 'Total Pasien', value: stats?.total_patients, icon: Users, gradient: 'gradient-primary', shadowColor: 'shadow-blue-500/25', trend: 'Pasien terdaftar' },
-    { title: 'Dokter Aktif', value: stats?.active_doctors, icon: UserCog, gradient: 'gradient-purple', shadowColor: 'shadow-purple-500/25', trend: 'Dokter bertugas' },
-    { title: 'Antrian Hari Ini', value: stats?.today_queue, icon: Calendar, gradient: 'gradient-warning', shadowColor: 'shadow-orange-500/25', trend: 'Total antrian hari ini' },
-    { title: 'Sedang Menunggu', value: stats?.waiting_now, icon: Clock, gradient: 'bg-gradient-to-br from-amber-500 to-yellow-600', shadowColor: 'shadow-amber-500/25', trend: 'Belum dipanggil' },
-    { title: 'Selesai Hari Ini', value: stats?.completed_today, icon: CheckCircle, gradient: 'gradient-success', shadowColor: 'shadow-emerald-500/25', trend: 'Kunjungan selesai' },
-  ]
+  // Extract stats — support both nested and flat response shapes
+  const stats: AdminDashboardStats | undefined = statsData?.data?.data as unknown as AdminDashboardStats | undefined
+  // Fallback: map from DashboardStats if AdminDashboardStats fields are missing
+  const rawStats = statsData?.data?.data as Record<string, unknown> | undefined
+  const resolvedStats: AdminDashboardStats | undefined = stats?.total_appointments !== undefined
+    ? stats
+    : rawStats
+      ? {
+          total_appointments: (rawStats.today_queue as number) ?? 0,
+          total_checkins: (rawStats.today_visits as number) ?? 0,
+          completed_visits: (rawStats.completed_today as number) ?? 0,
+          no_shows: 0,
+          avg_wait_time_minutes: 0,
+          active_doctor_count: (rawStats.active_doctors as number) ?? 0,
+        }
+      : undefined
+
+  const upcomingAppointments: Appointment[] = appointmentsData?.data?.data ?? []
+
+  // ── Realtime Sync ──
+
+  const handleRealtimeMessage = useCallback(
+    (message: RealtimeMessage) => {
+      if (message.type === 'checkin') {
+        const event = message.data as CheckinEvent
+        // Prepend to recent check-ins list, keep last 30 min worth
+        setRecentCheckins((prev) => {
+          const updated = [
+            { patient_name: event.patient_name, queue_number: event.queue_number, timestamp: event.timestamp },
+            ...prev,
+          ]
+          // Keep only items from last 30 minutes
+          const thirtyMinAgo = Date.now() - 30 * 60 * 1000
+          return updated.filter((item) => new Date(item.timestamp).getTime() > thirtyMinAgo)
+        })
+        // Invalidate stats to reflect new check-in count
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.admin() })
+      }
+
+      if (message.type === 'appointment_status') {
+        // Invalidate appointments list to reflect status change
+        queryClient.invalidateQueries({ queryKey: ['appointments-upcoming-admin', today] })
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.admin() })
+      }
+    },
+    [queryClient, today]
+  )
+
+  const { connectionState } = useRealtimeSync({
+    channels: ['checkin', 'appointment_status'],
+    onMessage: handleRealtimeMessage,
+    refetchKeys: [[...queryKeys.dashboard.admin()], ['appointments-upcoming-admin', today]],
+  })
+
+  // ── Render ──
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Dashboard Admin</h1>
-          <p className="text-slate-500 mt-1">
-            Ringkasan klinik,{' '}
-            <span className="font-medium text-slate-700">
-              {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-100">
-          <Activity className="size-3.5 text-emerald-600" />
-          <span className="text-xs font-medium text-emerald-700">Sistem Online</span>
-        </div>
-      </div>
+      {/* Page Header */}
+      <PageHeader
+        title="Dashboard Admin"
+        subtitle={`Ringkasan klinik hari ini — ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}
+        category="admin"
+        actions={
+          connectionState === 'connected' ? (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)]"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--accent-success) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--accent-success) 20%, transparent)',
+              }}
+            >
+              <span
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: 'var(--accent-success)' }}
+              />
+              <span className="text-xs font-medium" style={{ color: 'var(--accent-success)' }}>
+                Live
+              </span>
+            </div>
+          ) : undefined
+        }
+      />
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        {cards.map((card, index) => (
-          <StatCard key={card.title} {...card} loading={isLoading} index={index} />
+      {/* 6 StatCards with stagger reveal and partial failure isolation */}
+      <div
+        ref={statsGridRef}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4"
+        role="region"
+        aria-label="Metrik dashboard"
+      >
+        {STAT_METRICS.map((metric) => (
+          <IsolatedStatCard
+            key={metric.key}
+            metric={metric}
+            value={resolvedStats?.[metric.key]}
+            isLoading={statsLoading}
+            isError={statsError}
+            onRetry={() => refetchStats()}
+          />
         ))}
       </div>
 
-      {/* Antrian Hari Ini & Quick Actions */}
+      {/* Quick Action Bar */}
+      <Card surface="raised" padding="sm">
+        <div className="flex flex-wrap items-center gap-3 p-2">
+          <span
+            className="text-sm font-semibold mr-2"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Aksi Cepat:
+          </span>
+          <Button variant="secondary" size="sm" asChild>
+            <Link to="/admin/scan-checkin">
+              <QrCode className="size-4" />
+              Scan Check-in
+            </Link>
+          </Button>
+          <Button variant="secondary" size="sm" asChild>
+            <Link to="/admin/appointments">
+              <Calendar className="size-4" />
+              Appointments
+            </Link>
+          </Button>
+          <Button variant="secondary" size="sm" asChild>
+            <Link to="/admin/analytics">
+              <BarChart3 className="size-4" />
+              Analytics
+            </Link>
+          </Button>
+        </div>
+      </Card>
+
+      {/* Two-column layout: Upcoming Appointments + Recent Check-ins */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Antrian Real-time */}
-        <Card className="lg:col-span-2 border-0 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-orange-50">
-                <Clock className="size-4 text-orange-500" />
-              </div>
-              Antrian Hari Ini
-              {stats?.waiting_now !== undefined && stats.waiting_now > 0 && (
-                <span className="ml-1 px-2.5 py-0.5 text-[11px] bg-orange-100 text-orange-700 rounded-full font-semibold">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-500 mr-1 dot-pulse" />
-                  {stats.waiting_now} menunggu
-                </span>
-              )}
-            </CardTitle>
-            <Button variant="ghost" size="sm" asChild className="text-xs text-slate-400 hover:text-primary">
-              <Link to="/admin/appointments">
-                Lihat Semua <ArrowRight className="size-3 ml-1" />
-              </Link>
-            </Button>
+        {/* Upcoming Appointments (next 10 today) */}
+        <Card surface="raised" className="lg:col-span-2" padding="none">
+          <CardHeader className="px-6 pt-6 pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div
+                  className="p-2 rounded-[var(--radius-md)]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--category-admin) 10%, transparent)' }}
+                >
+                  <Calendar className="size-4" style={{ color: 'var(--category-admin)' }} />
+                </div>
+                Janji Temu Mendatang
+              </CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/admin/appointments">
+                  Lihat Semua <ArrowRight className="size-3 ml-1" />
+                </Link>
+              </Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            {todayLoading ? (
+          <CardContent className="px-6 pb-6">
+            {appointmentsLoading ? (
               <div className="space-y-3">
-                {[...Array(3)].map((_, i) => (
+                {Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3 p-3">
                     <div className="w-10 h-10 rounded-full skeleton" />
                     <div className="flex-1 space-y-2">
@@ -148,37 +352,41 @@ export default function AdminDashboard() {
                   </div>
                 ))}
               </div>
-            ) : todayAppointments.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">
+            ) : upcomingAppointments.length === 0 ? (
+              <div className="text-center py-10" style={{ color: 'var(--text-tertiary)' }}>
                 <Calendar className="size-12 mx-auto mb-3 opacity-20" />
-                <p className="text-sm font-medium">Tidak ada antrian hari ini</p>
-                <p className="text-xs mt-1">Antrian akan muncul saat pasien mendaftar</p>
+                <p className="text-sm font-medium">Tidak ada janji temu hari ini</p>
+                <p className="text-xs mt-1">Janji temu akan muncul saat pasien mendaftar</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
-                {todayAppointments.map((appt, index) => (
-                  <div key={appt.id}
-                    className="flex items-center justify-between py-3.5 gap-4 stagger-item hover:bg-slate-50/50 -mx-2 px-2 rounded-lg transition-colors"
-                    style={{ animationDelay: `${index * 60}ms` }}>
+              <div className="divide-y divide-[var(--surface-sunken)]">
+                {upcomingAppointments.slice(0, 10).map((appt) => (
+                  <div
+                    key={appt.id}
+                    className="flex items-center justify-between py-3 gap-4"
+                  >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-md shadow-blue-500/20">
+                      <div
+                        className="w-9 h-9 rounded-[var(--radius-md)] flex items-center justify-center font-bold text-xs shrink-0"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--category-queue), var(--accent-primary))',
+                          color: 'var(--text-inverse)',
+                        }}
+                      >
                         {appt.queue_number}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient?.user?.full_name}</p>
-                        <p className="text-[11px] text-slate-400 truncate">
-                          {appt.doctor?.user?.full_name} · {appt.doctor?.specialization}
+                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                          {appt.patient?.user?.full_name ?? appt.patient?.full_name ?? 'Pasien'}
+                        </p>
+                        <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>
+                          {appt.doctor?.user?.full_name ?? appt.doctor?.full_name ?? 'Dokter'} · {formatTime(appt.schedule?.start_time)}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <p className="text-[11px] text-slate-400 hidden sm:block">
-                        {appt.schedule?.start_time} – {appt.schedule?.end_time}
-                      </p>
-                      <Badge variant={statusVariant(appt.status)} className="text-[11px]">
-                        {statusLabel(appt.status)}
-                      </Badge>
-                    </div>
+                    <Badge variant={statusVariant(appt.status)} className="text-[11px] shrink-0">
+                      {statusLabel(appt.status)}
+                    </Badge>
                   </div>
                 ))}
               </div>
@@ -186,50 +394,72 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* Quick Actions */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Aksi Cepat</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {[
-              { label: 'Tambah Dokter', href: '/admin/doctors', gradient: 'from-blue-50 to-blue-100/50', hoverGrad: 'hover:from-blue-100 hover:to-blue-200/50', textColor: 'text-blue-700', icon: UserCog, iconBg: 'bg-blue-500' },
-              { label: 'Atur Jadwal', href: '/admin/schedules', gradient: 'from-purple-50 to-purple-100/50', hoverGrad: 'hover:from-purple-100 hover:to-purple-200/50', textColor: 'text-purple-700', icon: Calendar, iconBg: 'bg-purple-500' },
-              { label: 'Data Pasien', href: '/admin/patients', gradient: 'from-emerald-50 to-emerald-100/50', hoverGrad: 'hover:from-emerald-100 hover:to-emerald-200/50', textColor: 'text-emerald-700', icon: Users, iconBg: 'bg-emerald-500' },
-              { label: 'Semua Antrian', href: '/admin/appointments', gradient: 'from-orange-50 to-orange-100/50', hoverGrad: 'hover:from-orange-100 hover:to-orange-200/50', textColor: 'text-orange-700', icon: CheckCircle, iconBg: 'bg-orange-500' },
-            ].map(({ label, href, gradient, hoverGrad, textColor, icon: Icon, iconBg }) => (
-              <Link
-                key={href}
-                to={href}
-                className={`flex items-center gap-3 p-3.5 rounded-xl bg-gradient-to-r ${gradient} ${hoverGrad} border border-transparent hover:border-slate-200/50 transition-all duration-200 group`}
+        {/* Recent Check-ins (last 30 min) */}
+        <Card surface="raised" padding="none">
+          <CardHeader className="px-6 pt-6 pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div
+                className="p-2 rounded-[var(--radius-md)]"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--category-queue) 10%, transparent)' }}
               >
-                <div className={`p-2 rounded-lg ${iconBg} shadow-sm`}>
-                  <Icon className="size-3.5 text-white" />
-                </div>
-                <span className={`text-sm font-semibold ${textColor} flex-1`}>{label}</span>
-                <ArrowRight className={`size-4 opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all ${textColor}`} />
-              </Link>
-            ))}
-
-            <div className="pt-4 border-t mt-4">
-              <div className="space-y-2.5 text-xs text-slate-400">
-                <div className="flex justify-between">
-                  <span>Versi Sistem</span>
-                  <span className="font-medium text-slate-600">v1.0.0</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Status API</span>
-                  <span className="text-emerald-600 font-medium flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Online
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Zona Waktu</span>
-                  <span className="font-medium text-slate-600">WIB (UTC+7)</span>
-                </div>
+                <Clock className="size-4" style={{ color: 'var(--category-queue)' }} />
               </div>
-            </div>
+              Check-in Terbaru
+              {recentCheckins.length > 0 && (
+                <span
+                  className="ml-1 px-2 py-0.5 text-[11px] rounded-full font-semibold"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--category-queue) 12%, transparent)',
+                    color: 'var(--category-queue)',
+                  }}
+                >
+                  {recentCheckins.length}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 pb-6">
+            {recentCheckins.length === 0 ? (
+              <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
+                <CheckCircle className="size-10 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">Belum ada check-in</p>
+                <p className="text-xs mt-1">Check-in 30 menit terakhir akan muncul di sini</p>
+              </div>
+            ) : (
+              <div
+                className="divide-y divide-[var(--surface-sunken)] max-h-[400px] overflow-y-auto"
+                role="list"
+                aria-label="Daftar check-in terbaru"
+                aria-live="polite"
+                aria-relevant="additions"
+              >
+                {recentCheckins.map((checkin, index) => (
+                  <div
+                    key={`${checkin.queue_number}-${checkin.timestamp}-${index}`}
+                    className="flex items-center justify-between py-3 gap-3"
+                    role="listitem"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-8 h-8 rounded-[var(--radius-sm)] flex items-center justify-center font-mono font-bold text-xs shrink-0"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--category-queue) 12%, transparent)',
+                          color: 'var(--category-queue)',
+                        }}
+                      >
+                        {checkin.queue_number}
+                      </div>
+                      <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        {checkin.patient_name}
+                      </p>
+                    </div>
+                    <span className="text-xs shrink-0" style={{ color: 'var(--text-tertiary)' }}>
+                      {formatTimestamp(checkin.timestamp)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

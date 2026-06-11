@@ -2,17 +2,62 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
+/**
+ * Badge component — CVA variants consuming design tokens.
+ *
+ * All color values reference CSS custom properties from tokens.css.
+ * No hardcoded color values.
+ *
+ * Requirements: 1.4, 4.7
+ */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-[var(--radius-full,9999px)] border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
-        secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive: "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
-        success: "border-transparent bg-green-100 text-green-800",
-        warning: "border-transparent bg-yellow-100 text-yellow-800",
+        /** Primary — accent-primary background, inverse text */
+        default: [
+          "border-transparent",
+          "bg-[var(--accent-primary)]",
+          "text-[var(--text-inverse)]",
+          "hover:bg-[color-mix(in_srgb,var(--accent-primary)_85%,black)]",
+        ].join(" "),
+
+        /** Secondary — sunken surface, primary text */
+        secondary: [
+          "border-[color-mix(in_srgb,var(--text-primary)_12%,transparent)]",
+          "bg-[var(--surface-sunken)]",
+          "text-[var(--text-secondary)]",
+          "hover:bg-[color-mix(in_srgb,var(--surface-sunken)_85%,var(--accent-primary)_15%)]",
+        ].join(" "),
+
+        /** Destructive — danger accent, inverse text */
+        destructive: [
+          "border-transparent",
+          "bg-[var(--accent-danger)]",
+          "text-[var(--text-inverse)]",
+          "hover:bg-[color-mix(in_srgb,var(--accent-danger)_85%,black)]",
+        ].join(" "),
+
+        /** Outline — transparent background, primary text */
+        outline: [
+          "border-[color-mix(in_srgb,var(--text-primary)_20%,transparent)]",
+          "text-[var(--text-primary)]",
+        ].join(" "),
+
+        /** Success — success accent tint background */
+        success: [
+          "border-[color-mix(in_srgb,var(--accent-success)_30%,transparent)]",
+          "bg-[color-mix(in_srgb,var(--accent-success)_12%,transparent)]",
+          "text-[var(--accent-success)]",
+        ].join(" "),
+
+        /** Warning — warning accent tint background */
+        warning: [
+          "border-[color-mix(in_srgb,var(--accent-warning)_30%,transparent)]",
+          "bg-[color-mix(in_srgb,var(--accent-warning)_12%,transparent)]",
+          "text-[var(--accent-warning)]",
+        ].join(" "),
       },
     },
     defaultVariants: {

@@ -5,6 +5,7 @@ package dto
 // ========================
 
 type CreateDoctorRequest struct {
+	Username       string `json:"username" binding:"required,min=3"`
 	Email          string `json:"email" binding:"required,email"`
 	Password       string `json:"password" binding:"required,min=8"`
 	FullName       string `json:"full_name" binding:"required"`
@@ -38,4 +39,18 @@ type UpdateScheduleRequest struct {
 	EndTime    string `json:"end_time"`
 	MaxPatient *int   `json:"max_patient"`
 	IsActive   *bool  `json:"is_active"`
+}
+
+// ScheduleAvailabilityResponse represents schedule with booking counts for a specific date
+type ScheduleAvailabilityResponse struct {
+	ScheduleID     string `json:"schedule_id"`
+	DoctorID       string `json:"doctor_id"`
+	DayOfWeek      int    `json:"day_of_week"`
+	StartTime      string `json:"start_time"`
+	EndTime        string `json:"end_time"`
+	MaxPatient     int    `json:"max_patient"`
+	IsActive       bool   `json:"is_active"`
+	Date           string `json:"date"`            // YYYY-MM-DD format
+	BookedCount    int    `json:"booked_count"`    // Number of appointments booked
+	AvailableCount int    `json:"available_count"` // Remaining slots
 }

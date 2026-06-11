@@ -1,6 +1,13 @@
 import { Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+/**
+ * StarRating — all color values reference CSS custom properties
+ * from tokens.css. No hardcoded color values.
+ *
+ * Requirements: 1.4
+ */
+
 interface StarRatingProps {
   rating: number
   maxRating?: number
@@ -36,12 +43,13 @@ export default function StarRating({
         const isFilled = i < Math.floor(rating)
         const isHalf = i < rating && i >= Math.floor(rating)
 
+        // Use span for non-interactive to avoid nested button issues
+        const Element = interactive ? 'button' : 'span'
+
         return (
-          <button
+          <Element
             key={i}
-            type="button"
-            onClick={() => handleClick(i)}
-            disabled={!interactive}
+            {...(interactive ? { type: 'button' as const, onClick: () => handleClick(i) } : {})}
             className={cn(
               'relative transition-all',
               interactive && 'cursor-pointer hover:scale-110',
@@ -52,18 +60,28 @@ export default function StarRating({
               className={cn(
                 sizeClasses[size],
                 'transition-colors',
-                isFilled || isHalf
-                  ? 'fill-amber-400 text-amber-400'
-                  : 'fill-slate-200 text-slate-300',
-                interactive && 'hover:fill-amber-300 hover:text-amber-300'
               )}
+              style={{
+                fill: isFilled || isHalf
+                  ? 'var(--accent-warning, #d97706)'
+                  : 'color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                color: isFilled || isHalf
+                  ? 'var(--accent-warning, #d97706)'
+                  : 'color-mix(in srgb, var(--text-primary) 20%, transparent)',
+              }}
             />
             {isHalf && (
               <div className="absolute inset-0 overflow-hidden" style={{ width: '50%' }}>
-                <Star className={cn(sizeClasses[size], 'fill-amber-400 text-amber-400')} />
+                <Star
+                  className={cn(sizeClasses[size])}
+                  style={{
+                    fill: 'var(--accent-warning, #d97706)',
+                    color: 'var(--accent-warning, #d97706)',
+                  }}
+                />
               </div>
             )}
-          </button>
+          </Element>
         )
       })}
     </div>
@@ -90,9 +108,16 @@ export function StarRatingDisplay({
       <StarRating rating={rating} size={size} />
       {showNumber && (
         <div className="flex items-center gap-1 text-sm">
-          <span className="font-semibold text-slate-900">{rating.toFixed(1)}</span>
+          <span
+            className="font-semibold"
+            style={{ color: 'var(--text-primary, #1a1714)' }}
+          >
+            {rating.toFixed(1)}
+          </span>
           {totalRatings !== undefined && (
-            <span className="text-slate-400">({totalRatings})</span>
+            <span style={{ color: 'var(--text-tertiary, #6b6358)' }}>
+              ({totalRatings})
+            </span>
           )}
         </div>
       )}

@@ -67,7 +67,7 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label="Kembali">
           <ArrowLeft className="size-4" />
         </Button>
         <div>
@@ -123,7 +123,8 @@ export default function MedicalRecordForm({ appointment, onDone, onBack }: Props
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-600">Obat #{i + 1}</span>
                   <Button type="button" variant="ghost" size="icon" onClick={() => removePrescription(i)}
-                    className="text-red-400 hover:text-red-600 h-7 w-7">
+                    className="text-red-400 hover:text-red-600 h-7 w-7"
+                    aria-label={`Hapus obat #${i + 1}`}>
                     <Trash2 className="size-3.5" />
                   </Button>
                 </div>

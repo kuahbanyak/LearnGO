@@ -109,7 +109,7 @@ func (u *ratingUsecase) GetDoctorSummary(doctorID uuid.UUID) (*dto.DoctorRatingS
 
 	return &dto.DoctorRatingSummary{
 		DoctorID:     doctorID.String(),
-		DoctorName:   doctor.User.FullName,
+		DoctorName:   doctor.FullName,
 		AverageScore: avg,
 		TotalRatings: count,
 	}, nil

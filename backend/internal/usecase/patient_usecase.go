@@ -52,6 +52,12 @@ func (u *patientUsecase) Update(userID uuid.UUID, req *dto.UpdatePatientRequest)
 		return nil, errors.New("patient profile not found")
 	}
 
+	if req.FullName != "" {
+		patient.FullName = req.FullName
+	}
+	if req.Phone != "" {
+		patient.Phone = req.Phone
+	}
 	if req.NIK != "" {
 		patient.NIK = &req.NIK
 	}
