@@ -64,7 +64,9 @@ func (u *appointmentUsecase) Book(patientUserID uuid.UUID, req *dto.CreateAppoin
 	}
 
 	// Validate date is not in the past
-	if appointmentDate.Before(time.Now().Truncate(24 * time.Hour)) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	if appointmentDate.Before(today) {
 		return nil, errors.New("appointment date cannot be in the past")
 	}
 
